@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f6f1ea;
+  --canvas-strong: #f0e8de;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-strong: rgba(255, 255, 255, 0.88);
+  --surface-muted: rgba(255, 252, 247, 0.72);
+  --text: #201d1a;
+  --text-soft: #655d55;
+  --text-faint: #8c8379;
+  --line: rgba(118, 102, 88, 0.12);
+  --line-strong: rgba(118, 102, 88, 0.18);
+  --shadow: 0 12px 30px rgba(87, 71, 54, 0.08);
+  --shadow-soft: 0 8px 22px rgba(87, 71, 54, 0.05);
+  --ring-track: rgba(81, 68, 56, 0.1);
+  --genre-rose: #e9878f;
+  --genre-amber: #d9a85e;
+  --genre-mint: #82bb9c;
+  --genre-sky: #8bb9d8;
+  --genre-lilac: #aea0d9;
+}
+
+@theme inline {
+  --color-background: var(--canvas);
+  --color-foreground: var(--text);
+  --font-sans: var(--font-inter);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background:
+    radial-gradient(circle at top left, rgba(233, 135, 143, 0.14), transparent 26%),
+    radial-gradient(circle at top right, rgba(130, 187, 156, 0.16), transparent 24%),
+    linear-gradient(180deg, #f8f3ed 0%, #f6f1ea 44%, #f3ede5 100%);
+}
+
+body {
+  min-height: 100vh;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "SF Pro Display", "Segoe UI", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(233, 135, 143, 0.24);
+}
+
+.glass-surface {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.glass-surface-strong {
+  background: var(--surface-strong);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(18px);
+}
+
+.soft-scrollbar {
+  scrollbar-width: none;
+}
+
+.soft-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
