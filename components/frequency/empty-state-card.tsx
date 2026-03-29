@@ -8,6 +8,7 @@ type EmptyStateCardProps = {
   body: string;
   primaryAction: string;
   secondaryAction?: string;
+  secondaryActionEmphasis?: "default" | "solid";
   eyebrow?: string;
   visual?: "music" | "rooms" | "insights";
   primaryHref?: string;
@@ -21,6 +22,7 @@ export function EmptyStateCard({
   body,
   primaryAction,
   secondaryAction,
+  secondaryActionEmphasis = "default",
   eyebrow,
   visual = "music",
   primaryHref,
@@ -28,6 +30,11 @@ export function EmptyStateCard({
   onPrimaryAction,
   onSecondaryAction,
 }: EmptyStateCardProps) {
+  const secondaryActionClassName =
+    secondaryActionEmphasis === "solid"
+      ? "button-primary inline-flex min-h-12 items-center rounded-full px-5 text-[15px] font-medium"
+      : "button-secondary inline-flex min-h-12 items-center rounded-full px-5 text-[15px] font-medium";
+
   const icon =
     visual === "rooms" ? (
       <Radio className="size-5" />
@@ -40,11 +47,11 @@ export function EmptyStateCard({
   return (
     <GlassCard strong className="overflow-hidden p-5 sm:p-6">
       <div className="space-y-5">
-        <div className="relative overflow-hidden rounded-[24px] border border-[var(--line)] bg-[linear-gradient(135deg,rgba(255,255,255,0.88),rgba(248,241,234,0.92))] p-5">
+        <div className="surface-inline-card relative overflow-hidden rounded-[24px] p-5">
           <div className="absolute -right-5 -top-8 size-24 rounded-full bg-[rgba(233,135,143,0.14)]" />
           <div className="absolute bottom-0 right-8 size-16 rounded-full bg-[rgba(130,187,156,0.16)]" />
           <div className="relative flex items-center gap-4">
-            <div className="grid size-12 place-items-center rounded-[18px] border border-[var(--line)] bg-white/80 text-[var(--text-soft)]">
+            <div className="surface-pill grid size-12 place-items-center rounded-[18px] text-[var(--text-soft)]">
               {icon}
             </div>
             <div className="space-y-1">
@@ -66,14 +73,14 @@ export function EmptyStateCard({
         <div className="flex flex-wrap gap-3">
           {primaryHref ? (
             <Link
-              className="inline-flex min-h-12 items-center rounded-full bg-[var(--text)] px-5 text-[15px] font-medium text-white"
+              className="button-primary inline-flex min-h-12 items-center rounded-full px-5 text-[15px] font-medium"
               href={primaryHref}
             >
               {primaryAction}
             </Link>
           ) : (
             <button
-              className="min-h-12 rounded-full bg-[var(--text)] px-5 text-[15px] font-medium text-white"
+              className="button-primary min-h-12 rounded-full px-5 text-[15px] font-medium"
               onClick={onPrimaryAction}
               type="button"
             >
@@ -82,18 +89,11 @@ export function EmptyStateCard({
           )}
           {secondaryAction ? (
             secondaryHref ? (
-              <Link
-                className="inline-flex min-h-12 items-center rounded-full border border-[var(--line)] bg-white/80 px-5 text-[15px] font-medium text-[var(--text-soft)]"
-                href={secondaryHref}
-              >
+              <Link className={secondaryActionClassName} href={secondaryHref}>
                 {secondaryAction}
               </Link>
             ) : (
-              <button
-                className="min-h-12 rounded-full border border-[var(--line)] bg-white/80 px-5 text-[15px] font-medium text-[var(--text-soft)]"
-                onClick={onSecondaryAction}
-                type="button"
-              >
+              <button className={secondaryActionClassName} onClick={onSecondaryAction} type="button">
                 {secondaryAction}
               </button>
             )

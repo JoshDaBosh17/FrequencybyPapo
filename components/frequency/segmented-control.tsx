@@ -27,8 +27,8 @@ export function SegmentedControl<T extends string>({
             className={cn(
               "min-h-10 flex-1 rounded-full px-4 text-sm font-medium transition",
               active
-                ? "bg-white text-[var(--text)] shadow-sm"
-                : "text-[var(--text-soft)] hover:bg-white/55",
+                ? "bg-[var(--surface-inline-strong)] text-[var(--text)] shadow-sm"
+                : "text-[var(--text-soft)] hover:bg-[var(--surface-inline)] hover:text-[var(--text)]",
             )}
             onClick={() => onChange(segment.id)}
             type="button"

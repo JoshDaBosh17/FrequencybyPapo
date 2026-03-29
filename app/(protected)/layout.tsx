@@ -1,5 +1,6 @@
 import { AuthGate } from "@/components/auth/auth-gate";
 import { ProtectedAppShell } from "@/components/frequency/protected-app-shell";
+import { GlobalPlayerProvider } from "@/components/providers/global-player-provider";
 
 export default function ProtectedLayout({
   children,
@@ -8,7 +9,9 @@ export default function ProtectedLayout({
 }) {
   return (
     <AuthGate mode="protected">
-      <ProtectedAppShell>{children}</ProtectedAppShell>
+      <GlobalPlayerProvider>
+        <ProtectedAppShell>{children}</ProtectedAppShell>
+      </GlobalPlayerProvider>
     </AuthGate>
   );
 }

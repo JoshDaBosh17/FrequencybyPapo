@@ -1,24 +1,30 @@
 @import "tailwindcss";
 
 :root {
-  --canvas: #f6f1ea;
-  --canvas-strong: #f0e8de;
-  --surface: rgba(255, 255, 255, 0.72);
-  --surface-strong: rgba(255, 255, 255, 0.88);
-  --surface-muted: rgba(255, 252, 247, 0.72);
-  --text: #201d1a;
-  --text-soft: #655d55;
-  --text-faint: #8c8379;
-  --line: rgba(118, 102, 88, 0.12);
-  --line-strong: rgba(118, 102, 88, 0.18);
-  --shadow: 0 12px 30px rgba(87, 71, 54, 0.08);
-  --shadow-soft: 0 8px 22px rgba(87, 71, 54, 0.05);
-  --ring-track: rgba(81, 68, 56, 0.1);
+  --canvas: #07090e;
+  --canvas-strong: #0b0d13;
+  --surface: rgba(16, 19, 28, 0.74);
+  --surface-strong: rgba(19, 23, 33, 0.9);
+  --surface-muted: rgba(23, 28, 39, 0.74);
+  --surface-inline: rgba(25, 30, 42, 0.78);
+  --surface-inline-strong: rgba(32, 38, 52, 0.9);
+  --surface-floating: rgba(10, 13, 20, 0.86);
+  --action: linear-gradient(180deg, rgba(42, 51, 69, 0.98), rgba(20, 26, 38, 0.98));
+  --action-text: #f4f1ea;
+  --text: #f4f1ea;
+  --text-soft: #cbc6bc;
+  --text-faint: #98938b;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+  --shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.24);
+  --ring-track: rgba(255, 255, 255, 0.08);
   --genre-rose: #e9878f;
   --genre-amber: #d9a85e;
   --genre-mint: #82bb9c;
   --genre-sky: #8bb9d8;
   --genre-lilac: #aea0d9;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -33,9 +39,10 @@
 
 html {
   background:
-    radial-gradient(circle at top left, rgba(233, 135, 143, 0.14), transparent 26%),
-    radial-gradient(circle at top right, rgba(130, 187, 156, 0.16), transparent 24%),
-    linear-gradient(180deg, #f8f3ed 0%, #f6f1ea 44%, #f3ede5 100%);
+    radial-gradient(circle at top left, rgba(233, 135, 143, 0.14), transparent 24%),
+    radial-gradient(circle at top right, rgba(130, 187, 156, 0.12), transparent 22%),
+    radial-gradient(circle at bottom center, rgba(139, 185, 216, 0.08), transparent 26%),
+    linear-gradient(180deg, #090b11 0%, #06080d 48%, #04060a 100%);
 }
 
 body {
@@ -59,21 +66,119 @@ textarea {
 }
 
 ::selection {
-  background: rgba(233, 135, 143, 0.24);
+  background: rgba(233, 135, 143, 0.34);
 }
 
 .glass-surface {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
+  background: linear-gradient(180deg, rgba(18, 22, 32, 0.58), rgba(10, 13, 19, 0.52));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(18px);
 }
 
 .glass-surface-strong {
-  background: var(--surface-strong);
-  border: 1px solid var(--line-strong);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(18px);
+  background: linear-gradient(180deg, rgba(20, 24, 35, 0.72), rgba(11, 14, 21, 0.64));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(20px);
+}
+
+.surface-inline-card {
+  background: linear-gradient(180deg, rgba(25, 31, 43, 0.68), rgba(13, 17, 24, 0.72));
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.surface-inline-soft {
+  background: linear-gradient(180deg, rgba(26, 31, 43, 0.46), rgba(15, 18, 26, 0.58));
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.surface-pill {
+  background: rgba(24, 29, 40, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.section-haze {
+  background:
+    radial-gradient(circle at top left, rgba(233, 135, 143, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(16, 20, 29, 0.28), rgba(10, 12, 18, 0.12));
+  backdrop-filter: blur(16px);
+}
+
+.section-haze-strong {
+  background:
+    radial-gradient(circle at top left, rgba(233, 135, 143, 0.1), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(139, 185, 216, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(18, 22, 32, 0.4), rgba(10, 12, 18, 0.18));
+  backdrop-filter: blur(20px);
+}
+
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+}
+
+.button-primary {
+  background: var(--action);
+  color: var(--action-text);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 30px rgba(0, 0, 0, 0.26);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease;
+}
+
+.button-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 18px 36px rgba(0, 0, 0, 0.3);
+}
+
+.button-secondary {
+  background: var(--surface-inline);
+  color: var(--text-soft);
+  border: 1px solid var(--line);
+  transition:
+    background 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease,
+    opacity 180ms ease;
+}
+
+.button-secondary:hover:not(:disabled) {
+  background: var(--surface-inline-strong);
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.field-surface {
+  background: rgba(15, 18, 27, 0.94);
+  color: var(--text);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.field-surface:focus {
+  border-color: var(--line-strong);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  outline: none;
+}
+
+.modal-scrim {
+  background: rgba(5, 7, 11, 0.64);
+}
+
+::placeholder {
+  color: var(--text-faint);
 }
 
 .soft-scrollbar {
@@ -86,4 +191,150 @@ textarea {
 
 .text-balance {
   text-wrap: balance;
+}
+
+@keyframes frequency-helix-float {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+
+  25% {
+    transform: translate3d(0, -3px, 0) rotate(0.22deg);
+  }
+
+  50% {
+    transform: translate3d(0, -6px, 0) rotate(0deg);
+  }
+
+  75% {
+    transform: translate3d(0, -3px, 0) rotate(-0.22deg);
+  }
+}
+
+@keyframes frequency-helix-crossflow {
+  0% {
+    opacity: 0.14;
+    stroke-dashoffset: 0;
+  }
+
+  35% {
+    opacity: 0.28;
+  }
+
+  100% {
+    opacity: 0.14;
+    stroke-dashoffset: -42;
+  }
+}
+
+@keyframes frequency-helix-flow {
+  0% {
+    opacity: 0.06;
+    stroke-dashoffset: 0;
+  }
+
+  18% {
+    opacity: 0.96;
+  }
+
+  82% {
+    opacity: 0.96;
+  }
+
+  100% {
+    opacity: 0.06;
+    stroke-dashoffset: -188;
+  }
+}
+
+@keyframes frequency-helix-chip-shell {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+    filter: brightness(1);
+  }
+
+  50% {
+    transform: translate3d(0, -2px, 0);
+    filter: brightness(1.08);
+  }
+}
+
+.frequency-helix-float {
+  animation: frequency-helix-float 9s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+.frequency-helix-crossflow {
+  animation: frequency-helix-crossflow 4.8s linear infinite;
+  stroke-dasharray: 10 18;
+}
+
+.frequency-helix-flow {
+  animation: frequency-helix-flow 5.6s linear infinite;
+  stroke-dasharray: 72 220;
+}
+
+.frequency-helix-chip-shell {
+  animation: frequency-helix-chip-shell 7s ease-in-out infinite;
+}
+
+@keyframes frequency-room-helix-drift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    transform: translate3d(0, -3px, 0);
+  }
+}
+
+@keyframes frequency-room-helix-crossflow {
+  0% {
+    opacity: 0.14;
+    stroke-dashoffset: 0;
+  }
+
+  35% {
+    opacity: 0.26;
+  }
+
+  100% {
+    opacity: 0.14;
+    stroke-dashoffset: -32;
+  }
+}
+
+@keyframes frequency-room-helix-flow {
+  0% {
+    opacity: 0.08;
+    stroke-dashoffset: 0;
+  }
+
+  18% {
+    opacity: 0.92;
+  }
+
+  82% {
+    opacity: 0.92;
+  }
+
+  100% {
+    opacity: 0.08;
+    stroke-dashoffset: -136;
+  }
+}
+
+.frequency-room-helix-drift {
+  animation: frequency-room-helix-drift 8.8s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+.frequency-room-helix-crossflow {
+  animation: frequency-room-helix-crossflow 4.4s linear infinite;
+  stroke-dasharray: 8 14;
+}
+
+.frequency-room-helix-flow {
+  animation: frequency-room-helix-flow 5.1s linear infinite;
+  stroke-dasharray: 42 138;
 }

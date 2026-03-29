@@ -10,7 +10,7 @@ export function SectionHeader({ title, actionLabel }: SectionHeaderProps) {
         {title}
       </h2>
       {actionLabel ? (
-        <button className="min-h-11 rounded-full border border-[var(--line)] bg-white/70 px-4 text-sm font-medium text-[var(--text-soft)] transition hover:bg-white">
+        <button className="button-secondary min-h-11 rounded-full px-4 text-sm font-medium">
           {actionLabel}
         </button>
       ) : null}

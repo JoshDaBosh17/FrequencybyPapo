@@ -1,5 +1,5 @@
 import { channelTree } from "@/lib/mock-data";
-import { ChannelId, HomeInvite, Person, PlayerData, Room, Scenario } from "@/lib/types";
+import { ChannelId, HomeInvite, Person, Room, Scenario } from "@/lib/types";
 import { AvatarStack } from "./avatar-stack";
 import { ChannelList } from "./channel-list";
 import { EmptyStateCard } from "./empty-state-card";
@@ -7,7 +7,6 @@ import { GlassCard } from "./glass-card";
 import { MetricRing } from "./metric-ring";
 import { RoomCard } from "./room-card";
 import { SectionHeader } from "./section-header";
-import { SegmentedControl } from "./segmented-control";
 import { SongRow } from "./song-row";
 import { StatPill } from "./stat-pill";
 import { TrendCard } from "./trend-card";
@@ -685,95 +684,44 @@ export function InsightsScreen({
   );
 }
 
-type PlayerScreenProps = {
-  player: PlayerData;
-  queueTab: "queue" | "related" | "room-picks";
-  onQueueTabChange: (value: "queue" | "related" | "room-picks") => void;
-};
-
-export function PlayerScreen({
-  player,
-  queueTab,
-  onQueueTabChange,
-}: PlayerScreenProps) {
-  const hasSong = Boolean(player.currentSong);
-  const visibleSongs =
-    queueTab === "queue"
-      ? player.queue
-      : queueTab === "related"
-        ? player.related
-        : player.roomPicks;
+export function CompareScreen({ scenario }: { scenario: Scenario }) {
+  const compareRoom = scenario.rooms.find((room) => !room.empty) ?? scenario.rooms[0];
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      {hasSong && player.currentSong ? (
-        <>
-          <GlassCard strong className="overflow-hidden rounded-[28px] p-5 sm:p-6">
-            <div className="space-y-5">
-              <div
-                className="aspect-[4/3] w-full rounded-[24px]"
-                style={{
-                  background: `linear-gradient(145deg, ${player.currentSong.artworkColor}, rgba(255,255,255,0.72))`,
-                }}
-              />
-              <div className="space-y-1">
-                <p className="text-[24px] font-semibold tracking-[-0.04em] text-[var(--text)]">
-                  {player.currentSong.title}
-                </p>
-                <p className="text-[16px] font-medium text-[var(--text-soft)]">
-                  {player.currentSong.artist}
-                </p>
-                <p className="text-[14px] text-[var(--text-faint)]">
-                  {player.contextLabel ?? player.currentSong.context}
-                </p>
-              </div>
-            </div>
-          </GlassCard>
+      <GlassCard strong className="rounded-[28px] p-5 sm:p-6">
+        <div className="space-y-3">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
+            Compare
+          </p>
+          <p className="text-[30px] font-semibold tracking-[-0.05em] text-[var(--text)]">
+            Compare with someone
+          </p>
+          <p className="max-w-2xl text-[15px] leading-7 text-[var(--text-soft)]">
+            The next version of Frequency centers overlap, contrast, and shared taste instead of a dedicated playback page.
+          </p>
+        </div>
+      </GlassCard>
 
-          <GlassCard className="overflow-hidden rounded-[28px] p-3 sm:p-4">
-            <div className="aspect-video overflow-hidden rounded-[22px] bg-[rgba(255,255,255,0.8)]">
-              <iframe
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="h-full w-full border-0"
-                src={`https://www.youtube-nocookie.com/embed/${player.currentSong.youtubeId ?? "dQw4w9WgXcQ"}`}
-                title={`${player.currentSong.title} player`}
-              />
-            </div>
-          </GlassCard>
+      {compareRoom ? (
+        <GlassCard className="p-5 sm:p-6">
+          <p className="text-[18px] font-semibold tracking-[-0.03em] text-[var(--text)]">
+            Placeholder comparison target
+          </p>
+          <p className="mt-2 text-[14px] leading-6 text-[var(--text-soft)]">
+            {compareRoom.name} is ready to become the first comparison surface once shared overlap views are built.
+          </p>
+        </GlassCard>
+      ) : null}
 
-          <SegmentedControl
-            segments={[
-              { id: "queue", label: "Queue" },
-              { id: "related", label: "Related" },
-              { id: "room-picks", label: "Room Picks" },
-            ]}
-            value={queueTab}
-            onChange={onQueueTabChange}
-          />
-
-          <div className="space-y-3">
-            {visibleSongs.length ? (
-              visibleSongs.map((song) => <SongRow key={song.id} song={song} affordance="chevron" />)
-            ) : (
-              <GlassCard className="p-5">
-                <p className="text-[15px] leading-6 text-[var(--text-soft)]">
-                  There is nothing here yet. Start from Home or Rooms to build this list.
-                </p>
-              </GlassCard>
-            )}
-          </div>
-        </>
-      ) : (
-        <EmptyStateCard
-          title="Nothing playing yet"
-          body="Start from your state, a room, or a channel. Frequency will keep the player familiar while keeping the social context visible."
-          primaryAction="Open Home"
-          secondaryAction="Explore Rooms"
-          eyebrow="Player"
-          visual="music"
-        />
-      )}
+      <EmptyStateCard
+        title="Comparison tools are coming next"
+        body="This area will soon let you compare your taste with a friend, room, or shared listening context."
+        primaryAction="Open Home"
+        secondaryAction="Explore Rooms"
+        eyebrow="Compare"
+        visual="insights"
+      />
     </div>
   );
 }

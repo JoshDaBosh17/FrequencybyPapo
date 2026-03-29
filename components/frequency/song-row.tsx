@@ -24,7 +24,7 @@ export function SongRow({
       <div
         className="size-14 shrink-0 rounded-[18px]"
         style={{
-          background: `linear-gradient(145deg, ${song.artworkColor}, rgba(255,255,255,0.72))`,
+          background: `linear-gradient(145deg, ${song.artworkColor}, rgba(12,15,22,0.72))`,
         }}
       />
       <div className="min-w-0 flex-1 space-y-1">
@@ -38,7 +38,7 @@ export function SongRow({
       </div>
       <div className="flex shrink-0 items-center gap-2 pl-2">
         <span className="text-[13px] font-medium text-[var(--text-faint)]">{song.duration}</span>
-        <button className="grid size-11 place-items-center rounded-full border border-[var(--line)] bg-white/80 text-[var(--text-soft)]">
+        <button className="button-secondary grid size-11 place-items-center rounded-full text-[var(--text-soft)]">
           {affordance === "play" ? <Play className="size-4 fill-current" /> : <ChevronRight className="size-4" />}
         </button>
       </div>

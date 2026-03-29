@@ -1,7 +1,6 @@
 import { Room, Person } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AvatarStack } from "./avatar-stack";
-import { GlassCard } from "./glass-card";
 import { StatPill } from "./stat-pill";
 
 type RoomCardProps = {
@@ -27,13 +26,14 @@ export function RoomCard({
 
   return (
     <button className="w-full text-left" onClick={onClick} type="button">
-      <GlassCard
-        strong={selected}
+      <div
         className={cn(
+          "section-haze relative overflow-hidden rounded-[26px] transition duration-200 hover:bg-[linear-gradient(180deg,rgba(22,27,38,0.36),rgba(12,15,22,0.18))]",
           compact ? "min-h-16 p-3.5" : "min-h-[104px] p-4",
-          selected ? "border-[var(--line-strong)] bg-white/90" : "",
+          selected ? "bg-[linear-gradient(180deg,rgba(27,33,45,0.48),rgba(15,19,27,0.24))]" : "",
         )}
       >
+        <div className="absolute inset-x-6 top-0 h-14 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.06),transparent_72%)] blur-2xl" />
         <div className="flex h-full items-start justify-between gap-4">
           <div className="flex min-w-0 gap-3">
             <div
@@ -63,7 +63,7 @@ export function RoomCard({
             {compact ? socialLabel : room.memberCountLabel}
           </p>
         </div>
-      </GlassCard>
+      </div>
     </button>
   );
 }

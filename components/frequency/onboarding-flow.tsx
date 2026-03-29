@@ -3,8 +3,14 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { triggerUserEnrichment } from "@/lib/client/enrichment";
 import { useAuth } from "@/components/providers/auth-provider";
+import { IS_CLIENT_TEST_MODE } from "@/lib/env/client";
+import { resolveArtistEntry } from "@/lib/frequency/artist-entry";
+import { logArtistCorrectionEvent } from "@/lib/frequency/artist-correction-log";
 import { completeOnboarding } from "@/lib/firebase/firestore";
+import { useMountedRef } from "@/lib/use-mounted-ref";
+import { ArtistCorrectionModal } from "./artist-correction-modal";
 import { GlassCard } from "./glass-card";
 import { StatPill } from "./stat-pill";
 
@@ -20,6 +26,13 @@ export function OnboardingFlow() {
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inputError, setInputError] = useState<string | null>(null);
+  const [correction, setCorrection] = useState<{
+    open: boolean;
+    originalArtist: string;
+    canonicalArtist: string;
+  } | null>(null);
+  const mountedRef = useMountedRef();
 
   const progress = useMemo(() => ((step + 1) / steps.length) * 100, [step]);
 
@@ -40,7 +53,7 @@ export function OnboardingFlow() {
               </p>
             </div>
             <button
-              className="inline-flex min-h-13 items-center justify-center rounded-full bg-[var(--text)] px-6 text-[15px] font-medium text-white"
+              className="button-primary inline-flex min-h-13 items-center justify-center rounded-full px-6 text-[15px] font-medium"
               onClick={() => void signIn()}
               type="button"
             >
@@ -52,14 +65,35 @@ export function OnboardingFlow() {
     );
   }
 
-  function addArtist() {
-    const nextArtist = artistInput.trim();
-    if (!nextArtist || favoriteArtists.includes(nextArtist)) {
-      return;
-    }
-
-    setFavoriteArtists((current) => [...current, nextArtist]);
-    setArtistInput("");
+  async function addArtist() {
+    await resolveArtistEntry({
+      value: artistInput,
+      existingArtists: favoriteArtists,
+      onAddArtist: (artist) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        setFavoriteArtists((current) => [artist, ...current]);
+      },
+      onSetInput: (value) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        setArtistInput(value);
+      },
+      onSetCorrection: (value) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        setCorrection(value);
+      },
+      onSetValidationError: (value) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        setInputError(value);
+      },
+    });
   }
 
   async function finishOnboarding() {
@@ -69,14 +103,35 @@ export function OnboardingFlow() {
 
     setPending(true);
     setError(null);
+    logArtistCorrectionEvent("artist_submit_firebase_write_started", {
+      uid: user.uid,
+      artistCount: favoriteArtists.length,
+      source: "onboarding_finish",
+    });
 
     try {
       await completeOnboarding(user.uid, favoriteArtists);
-      router.push("/home");
+      logArtistCorrectionEvent("artist_submit_firebase_write_completed", {
+        uid: user.uid,
+        artistCount: favoriteArtists.length,
+        source: "onboarding_finish",
+      });
+      if (favoriteArtists.length && !IS_CLIENT_TEST_MODE) {
+        void triggerUserEnrichment(user.uid).catch(() => {
+          // Background genre enrichment is non-blocking for onboarding completion.
+        });
+      }
+      if (mountedRef.current) {
+        router.push("/home");
+      }
     } catch {
-      setError("We could not finish setup. Please try again.");
+      if (mountedRef.current) {
+        setError("We could not finish setup. Please try again.");
+      }
     } finally {
-      setPending(false);
+      if (mountedRef.current) {
+        setPending(false);
+      }
     }
   }
 
@@ -93,7 +148,7 @@ export function OnboardingFlow() {
                 Step {step + 1} of {steps.length}
               </StatPill>
             </div>
-            <div className="h-2 rounded-full bg-[rgba(81,68,56,0.08)]">
+            <div className="h-2 rounded-full bg-[rgba(255,255,255,0.08)]">
               <div
                 className="h-full rounded-full bg-[linear-gradient(90deg,var(--genre-amber),var(--genre-sky))]"
                 style={{ width: `${progress}%` }}
@@ -125,32 +180,37 @@ export function OnboardingFlow() {
 
               <div className="flex gap-3">
                 <input
-                  className="min-h-12 flex-1 rounded-full border border-[var(--line)] bg-white/82 px-4 text-[15px] outline-none"
-                  onChange={(event) => setArtistInput(event.target.value)}
+                  className="field-surface min-h-12 flex-1 rounded-full px-4 text-[15px]"
+                  onChange={(event) => {
+                    setArtistInput(event.target.value);
+                    setInputError(null);
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      addArtist();
+                      void addArtist();
                     }
                   }}
                   placeholder="Add an artist you love"
                   value={artistInput}
                 />
                 <button
-                  className="min-h-12 rounded-full bg-[var(--text)] px-5 text-[15px] font-medium text-white"
-                  onClick={addArtist}
+                  className="button-primary min-h-12 rounded-full px-5 text-[15px] font-medium"
+                  onClick={() => void addArtist()}
                   type="button"
                 >
                   Add
                 </button>
               </div>
 
+              {inputError ? <p className="text-[13px] text-[#aa5c5c]">{inputError}</p> : null}
+
               <div className="flex flex-wrap gap-3">
                 {favoriteArtists.length ? (
                   favoriteArtists.map((artist) => (
                     <button
                       key={artist}
-                      className="rounded-full border border-[var(--line)] bg-white/80 px-4 py-2 text-[14px] text-[var(--text-soft)]"
+                      className="surface-pill rounded-full px-4 py-2 text-[14px] text-[var(--text-soft)]"
                       onClick={() =>
                         setFavoriteArtists((current) => current.filter((entry) => entry !== artist))
                       }
@@ -188,7 +248,7 @@ export function OnboardingFlow() {
           <div className="flex flex-wrap gap-3">
             {step > 0 ? (
               <button
-                className="min-h-12 rounded-full border border-[var(--line)] bg-white/80 px-5 text-[15px] font-medium text-[var(--text-soft)]"
+                className="button-secondary min-h-12 rounded-full px-5 text-[15px] font-medium"
                 onClick={() => setStep((current) => current - 1)}
                 type="button"
               >
@@ -198,7 +258,7 @@ export function OnboardingFlow() {
 
             {step < steps.length - 1 ? (
               <button
-                className="min-h-12 rounded-full bg-[var(--text)] px-5 text-[15px] font-medium text-white"
+                className="button-primary min-h-12 rounded-full px-5 text-[15px] font-medium"
                 onClick={() => setStep((current) => current + 1)}
                 type="button"
               >
@@ -206,7 +266,7 @@ export function OnboardingFlow() {
               </button>
             ) : (
               <button
-                className="min-h-12 rounded-full bg-[var(--text)] px-5 text-[15px] font-medium text-white disabled:opacity-70"
+                className="button-primary min-h-12 rounded-full px-5 text-[15px] font-medium disabled:opacity-70"
                 disabled={pending}
                 onClick={() => void finishOnboarding()}
                 type="button"
@@ -217,6 +277,52 @@ export function OnboardingFlow() {
           </div>
         </div>
       </GlassCard>
+      <ArtistCorrectionModal
+        canonicalArtist={correction?.canonicalArtist ?? ""}
+        onConfirm={() => {
+          if (!correction) {
+            return;
+          }
+
+          setFavoriteArtists((current) => [...current, correction.canonicalArtist]);
+          setArtistInput("");
+          setInputError(null);
+          logArtistCorrectionEvent("artist_correction_confirmed", {
+            originalArtist: correction.originalArtist,
+            canonicalArtist: correction.canonicalArtist,
+          });
+          logArtistCorrectionEvent("artist_submit_correction_confirmed", {
+            originalArtist: correction.originalArtist,
+            canonicalArtist: correction.canonicalArtist,
+          });
+          logArtistCorrectionEvent("artist_correction_saved_canonical", {
+            originalArtist: correction.originalArtist,
+            canonicalArtist: correction.canonicalArtist,
+          });
+          logArtistCorrectionEvent("artist_submit_local_ui_added", {
+            artist: correction.originalArtist,
+            canonicalArtist: correction.canonicalArtist,
+            reason: "confirmed_correction",
+          });
+          setCorrection(null);
+        }}
+        onReject={() => {
+          if (!correction) {
+            return;
+          }
+
+          setArtistInput(correction.originalArtist);
+          setInputError(null);
+          logArtistCorrectionEvent("artist_correction_rejected", {
+            originalArtist: correction.originalArtist,
+            canonicalArtist: correction.canonicalArtist,
+          });
+          setCorrection(null);
+        }}
+        open={Boolean(correction?.open)}
+        pending={pending}
+        originalArtist={correction?.originalArtist ?? ""}
+      />
     </main>
   );
 }

@@ -12,8 +12,8 @@ export function SignedOutScreen() {
 
       <div className="relative mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
         <section className="space-y-6">
-          <div className="inline-flex items-center gap-3 rounded-full border border-[var(--line)] bg-white/70 px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)] shadow-[var(--shadow-soft)]">
-            <span className="grid size-8 place-items-center rounded-full bg-[var(--text)] text-white">
+          <div className="surface-pill inline-flex items-center gap-3 rounded-full px-4 py-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)] shadow-[var(--shadow-soft)]">
+            <span className="grid size-8 place-items-center rounded-full bg-[linear-gradient(180deg,rgba(42,51,69,0.98),rgba(20,26,38,0.98))] text-[11px] text-[var(--action-text)] shadow-[0_10px_22px_rgba(0,0,0,0.26)]">
               F
             </span>
             Frequency
@@ -45,7 +45,7 @@ export function SignedOutScreen() {
                 Shared taste, softer edges
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-[28px] border border-[var(--line)] bg-white/82 p-5">
+                <div className="surface-inline-soft rounded-[28px] p-5">
                   <p className="text-[16px] font-semibold tracking-[-0.03em] text-[var(--text)]">
                     Build a room around a night, a group, or a feeling.
                   </p>
@@ -53,7 +53,7 @@ export function SignedOutScreen() {
                     Keep it small and personal. Frequency starts warm before it gets smart.
                   </p>
                 </div>
-                <div className="rounded-[28px] border border-[var(--line)] bg-[linear-gradient(160deg,rgba(255,255,255,0.92),rgba(248,241,234,0.86))] p-5">
+                <div className="surface-inline-card rounded-[28px] p-5">
                   <p className="text-[16px] font-semibold tracking-[-0.03em] text-[var(--text)]">
                     Let people shape the mood together.
                   </p>
@@ -65,7 +65,7 @@ export function SignedOutScreen() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-[30px] border border-[var(--line)] bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(249,243,236,0.88))] p-5">
+              <div className="surface-inline-card rounded-[30px] p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-[var(--text-faint)]">
@@ -76,20 +76,20 @@ export function SignedOutScreen() {
                     </p>
                   </div>
                   <div className="flex -space-x-3">
-                    <div className="grid size-11 place-items-center rounded-full border-2 border-white bg-[#d29d7b] text-sm font-semibold text-white">
+                    <div className="grid size-11 place-items-center rounded-full border-2 border-[rgba(7,9,14,0.88)] bg-[#d29d7b] text-sm font-semibold text-white">
                       JS
                     </div>
-                    <div className="grid size-11 place-items-center rounded-full border-2 border-white bg-[#8bb9d8] text-sm font-semibold text-white">
+                    <div className="grid size-11 place-items-center rounded-full border-2 border-[rgba(7,9,14,0.88)] bg-[#8bb9d8] text-sm font-semibold text-white">
                       MY
                     </div>
-                    <div className="grid size-11 place-items-center rounded-full border-2 border-white bg-[#8bb89e] text-sm font-semibold text-white">
+                    <div className="grid size-11 place-items-center rounded-full border-2 border-[rgba(7,9,14,0.88)] bg-[#8bb89e] text-sm font-semibold text-white">
                       AR
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-[30px] border border-[var(--line)] bg-white/78 p-5">
+              <div className="surface-inline-soft rounded-[30px] p-5">
                 <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-[var(--text-faint)]">
                   First rooms
                 </p>

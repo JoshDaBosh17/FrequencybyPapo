@@ -1,164 +1,358 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ArrowLeft, Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
-import { PLACEHOLDER_ROOM_SONGS, PLACEHOLDER_ROOM_TRENDS } from "@/lib/frequency";
-import { observeRoom } from "@/lib/firebase/firestore";
-import type { ChannelId, FrequencyRoom } from "@/lib/types";
-import { ChannelList } from "./channel-list";
+import {
+  addRoomShareItem,
+  createRoomChannel,
+  observeRoom,
+  observeRoomShareItems,
+  removeRoomShareItem,
+} from "@/lib/firebase/firestore";
+import {
+  buildHelixPreviewGenres,
+  buildRoomHelixTimelineEntries,
+} from "@/lib/frequency/helix-timeline";
+import { getChannelVibe, getRoomIdentityGenres, getRoomVisibilityLabel } from "@/lib/frequency/room-identity";
+import type { FrequencyRoom, RoomShareItem } from "@/lib/types";
+import { formatCount } from "@/lib/utils";
 import { EmptyStateCard } from "./empty-state-card";
 import { GlassCard } from "./glass-card";
-import { RoomHeroCard } from "./room-hero-card";
-import { SongRow } from "./song-row";
-import { TrendCard } from "./trend-card";
+import { HelixTimelineModal } from "./helix-timeline-modal";
+import { RoomChannelSidebar } from "./room-channel-sidebar";
+import { RoomHeroHelix } from "./room-hero-helix";
+import { RoomShareComposerModal } from "./room-share-composer-modal";
+import { RoomShareFeed } from "./room-share-feed";
 
-const channelTree: Array<{
-  id: ChannelId;
-  label: string;
-  children?: Array<{ id: ChannelId; label: string }>;
-}> = [
-  { id: "overview", label: "Overview" },
-  {
-    id: "house",
-    label: "Genres",
-    children: [
-      { id: "house", label: "House" },
-      { id: "afro-house", label: "Afro House" },
-      { id: "rap", label: "Rap" },
-      { id: "chill", label: "Chill" },
-    ],
-  },
-  { id: "people", label: "People" },
-  { id: "songs", label: "Songs" },
-  { id: "insights", label: "Insights" },
-];
+const ROOM_PREVIEW_VISIBLE_ITEMS = 3;
+
+function normalizeValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function formatChannelLabel(channel: string) {
+  return channel.trim().startsWith("#") ? channel.trim() : `#${channel.trim()}`;
+}
+
+function LoadingRoomLayout() {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[288px_minmax(0,1fr)]">
+      <GlassCard strong className="min-h-[480px] rounded-[28px] p-4">
+        <div aria-hidden="true" />
+      </GlassCard>
+      <GlassCard strong className="min-h-[620px] rounded-[32px] p-5">
+        <div aria-hidden="true" />
+      </GlassCard>
+    </div>
+  );
+}
 
 export function RoomDetailScreen({ roomId }: { roomId: string }) {
-  const { profile } = useAuth();
-  const [room, setRoom] = useState<FrequencyRoom | null>(null);
-  const [selectedChannel, setSelectedChannel] = useState<ChannelId>("overview");
+  const { user, profile } = useAuth();
+  const [room, setRoom] = useState<FrequencyRoom | null | undefined>(undefined);
+  const [shareItems, setShareItems] = useState<RoomShareItem[]>([]);
+  const [preferredChannel, setPreferredChannel] = useState<string | null>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [removingItemId, setRemovingItemId] = useState<string | null>(null);
+  const [channelActionError, setChannelActionError] = useState<string | null>(null);
 
-  useEffect(() => observeRoom(roomId, setRoom), [roomId]);
+  useEffect(() => {
+    return observeRoom(roomId, setRoom);
+  }, [roomId]);
+
+  useEffect(() => {
+    return observeRoomShareItems(roomId, setShareItems);
+  }, [roomId]);
+
+  const canViewRoom = useMemo(() => {
+    if (!room) {
+      return false;
+    }
+
+    if (room.visibility === "public") {
+      return true;
+    }
+
+    return user ? room.memberIds.includes(user.uid) : false;
+  }, [room, user]);
+
+  const activeChannel =
+    room?.genreChannels.find((channel) => channel === preferredChannel) ??
+    room?.genreChannels[0] ??
+    null;
+  const activeChannelVibe = activeChannel && room ? getChannelVibe(room, activeChannel) : null;
+  const roomGenres = useMemo(
+    () => getRoomIdentityGenres(room ?? { starterVibe: null, genreChannels: [], channelVibes: {} }),
+    [room],
+  );
+  const heroGenres = useMemo(
+    () =>
+      activeChannel
+        ? [activeChannelVibe ?? "", activeChannel, room?.starterVibe ?? "", ...roomGenres].filter(Boolean)
+        : roomGenres,
+    [activeChannel, activeChannelVibe, room?.starterVibe, roomGenres],
+  );
+  const roomTimelineEntries = useMemo(() => {
+    if (!room) {
+      return [];
+    }
+
+    return buildRoomHelixTimelineEntries({
+      activeChannel,
+      room,
+      shareItems,
+    });
+  }, [activeChannel, room, shareItems]);
+  const previewGenres = useMemo(
+    () => buildHelixPreviewGenres(roomTimelineEntries, heroGenres),
+    [heroGenres, roomTimelineEntries],
+  );
+  const activeChannelItems = useMemo(
+    () =>
+      activeChannel
+        ? shareItems.filter(
+            (item) => normalizeValue(item.channel) === normalizeValue(activeChannel),
+          )
+        : [],
+    [activeChannel, shareItems],
+  );
+  const previewItems = useMemo(() => {
+    const musicItems = activeChannelItems.filter(
+      (item) => item.kind === "song" || item.kind === "artist",
+    );
+    const sourceItems = musicItems.length ? musicItems : activeChannelItems;
+
+    return sourceItems.slice(0, ROOM_PREVIEW_VISIBLE_ITEMS);
+  }, [activeChannelItems]);
+  async function handleCreateChannel(channel: { name: string; vibe?: string }) {
+    const createdChannel = await createRoomChannel(roomId, channel);
+    setPreferredChannel(createdChannel);
+  }
+
+  async function handleAddShareItem(draft: {
+    kind: RoomShareItem["kind"];
+    title: string;
+    subtitle?: string | null;
+    url?: string | null;
+    note?: string | null;
+  }) {
+    if (!activeChannel) {
+      throw new Error("Choose a channel first.");
+    }
+
+    if (!user && !profile?.uid) {
+      throw new Error("Sign in again before sharing.");
+    }
+
+    setChannelActionError(null);
+
+    await addRoomShareItem({
+      roomId,
+      channel: activeChannel,
+      kind: draft.kind,
+      title: draft.title,
+      subtitle: draft.subtitle,
+      url: draft.url,
+      note: draft.note,
+      addedBy: user?.uid ?? profile?.uid ?? "",
+      addedByName: profile?.displayName ?? user?.displayName ?? null,
+    });
+  }
+
+  async function handleRemoveShareItem(item: RoomShareItem) {
+    const currentUserId = user?.uid ?? profile?.uid ?? null;
+
+    if (!currentUserId) {
+      setChannelActionError("Sign in again before removing a drop.");
+      return;
+    }
+
+    setChannelActionError(null);
+    setRemovingItemId(item.id);
+
+    try {
+      await removeRoomShareItem({
+        roomId,
+        itemId: item.id,
+        removedBy: currentUserId,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "That drop could not be removed.";
+      setChannelActionError(message);
+      console.error("[frequency][room-share]", {
+        event: "room_share_item_remove_failed",
+        roomId,
+        itemId: item.id,
+        error: message,
+      });
+    } finally {
+      setRemovingItemId((current) => (current === item.id ? null : current));
+    }
+  }
+
+  if (room === undefined) {
+    return <LoadingRoomLayout />;
+  }
 
   if (!room) {
     return (
-      <GlassCard strong className="rounded-[28px] p-6">
-        <p className="text-[18px] font-semibold tracking-[-0.03em] text-[var(--text)]">
-          Opening room
-        </p>
-      </GlassCard>
+      <EmptyStateCard
+        body="This room could not be found. Jump back to your rooms and pick another space."
+        primaryAction="Back to rooms"
+        primaryHref="/rooms"
+        title="Room not found"
+        visual="rooms"
+      />
     );
   }
 
-  if (!profile || !room.memberIds.includes(profile.uid)) {
+  if (!canViewRoom) {
     return (
       <EmptyStateCard
-        body="You need to be part of this room before we can show the full room experience."
-        primaryAction="Go to rooms"
+        body="This room is personal and isn't part of your spaces yet."
+        primaryAction="Back to rooms"
         primaryHref="/rooms"
-        title="This room is not open to you yet"
+        title="This room isn't available here"
         visual="rooms"
       />
     );
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
-      <div className="space-y-4">
-        <GlassCard className="hidden p-4 lg:block">
-          <div className="space-y-3">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)]">
-              Room channels
-            </p>
-            <p className="text-[16px] font-semibold tracking-[-0.03em] text-[var(--text)]">
-              Keep the structure in place while activity and songs grow in.
-            </p>
-          </div>
-        </GlassCard>
-        <ChannelList channels={channelTree} onChange={setSelectedChannel} value={selectedChannel} />
-      </div>
+    <div className="space-y-5">
+      <Link
+        className="button-secondary inline-flex min-h-10 items-center gap-2 rounded-full px-3.5 text-sm font-medium"
+        href="/rooms"
+      >
+        <ArrowLeft className="size-4" />
+        Back to rooms
+      </Link>
 
-      <div className="space-y-4">
-        <RoomHeroCard profile={profile} room={room} />
-
-        <GlassCard strong className="rounded-[28px] p-5 sm:p-6">
-          <div className="space-y-3">
-            <p className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
-              {selectedChannel === "overview"
-                ? "Room overview"
-                : selectedChannel === "songs"
-                  ? "Songs"
-                  : selectedChannel === "people"
-                    ? "People"
-                    : selectedChannel === "insights"
-                      ? "Insights"
-                      : `${selectedChannel.replace("-", " ")} channel`}
-            </p>
-            <p className="text-[15px] leading-7 text-[var(--text-soft)]">
-              {selectedChannel === "insights"
-                ? "Insights stay intentionally stubbed until shared listening data becomes real."
-                : room.activitySummary}
-            </p>
-          </div>
-        </GlassCard>
-
-        {selectedChannel === "people" ? (
-          <GlassCard className="p-5">
-            <p className="text-[16px] font-semibold text-[var(--text)]">
-              {room.memberIds.length} members in this room
-            </p>
-            <p className="mt-2 text-[14px] leading-6 text-[var(--text-soft)]">
-              Invite links are coming next. For now, the creator is stored and membership is checked against Firestore.
-            </p>
-          </GlassCard>
-        ) : null}
-
-        {selectedChannel === "insights" ? (
-          <EmptyStateCard
-            body="The shell is ready for insights, but advanced room math can wait until the real music layer arrives."
-            primaryAction="Open player"
-            primaryHref="/player"
-            secondaryAction="Back to rooms"
-            secondaryHref="/rooms"
-            title="Insights will get smarter as rooms fill up"
-            visual="insights"
+      <div className="grid gap-5 xl:grid-cols-[288px_minmax(0,1fr)]">
+        <div className="xl:sticky xl:top-24 xl:self-start">
+          <RoomChannelSidebar
+            channels={room.genreChannels}
+            channelVibes={room.channelVibes}
+            memberCountLabel={formatCount(room.memberIds.length, "member")}
+            onCreateChannel={handleCreateChannel}
+            onSelectChannel={setPreferredChannel}
+            roomName={room.name}
+            roomVisibilityLabel={getRoomVisibilityLabel(room.visibility)}
+            selectedChannel={activeChannel}
+            starterVibe={room.starterVibe}
           />
-        ) : (
-          <>
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
-                  What is changing here
-                </h2>
-                <Link
-                  className="text-sm font-medium text-[var(--text-soft)]"
-                  href="/player"
-                >
-                  Player stub
-                </Link>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                {PLACEHOLDER_ROOM_TRENDS.map((trend) => (
-                  <TrendCard key={trend.id} trend={trend} />
-                ))}
-              </div>
-            </section>
+        </div>
 
-            <section className="space-y-3">
-              <h2 className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
-                Songs
-              </h2>
-              <div className="space-y-3">
-                {PLACEHOLDER_ROOM_SONGS.map((song) => (
-                  <SongRow key={song.id} affordance="chevron" song={song} />
-                ))}
+        <div className="min-w-0 space-y-4">
+          {!activeChannel ? (
+            <EmptyStateCard
+              body="Create the first channel from the sidebar so this room has a place for songs, artists, and links."
+              primaryAction="Back to rooms"
+              primaryHref="/rooms"
+              title="This room needs its first channel"
+              visual="rooms"
+            />
+          ) : (
+            <section>
+              <div className="grid grid-cols-[minmax(0,1fr)_124px] items-start gap-4 sm:grid-cols-[minmax(0,1fr)_164px] sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)] lg:gap-8">
+                <div className="min-w-0 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
+                        Recent additions
+                      </p>
+                      {previewItems.length ? (
+                        <p className="text-[13px] leading-5 text-[var(--text-soft)]">
+                          {formatCount(previewItems.length, "drop")} shaping this lane right now.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <button
+                      aria-label={`Add music to ${formatChannelLabel(activeChannel)}`}
+                      className="button-secondary inline-flex size-10 shrink-0 items-center justify-center rounded-full"
+                      onClick={() => {
+                        setChannelActionError(null);
+                        setComposerOpen(true);
+                      }}
+                      type="button"
+                    >
+                      <Plus className="size-4" />
+                    </button>
+                  </div>
+
+                  <RoomShareFeed
+                    activeChannel={activeChannel}
+                    canRemoveItem={(item) => {
+                      const currentUserId = user?.uid ?? profile?.uid ?? null;
+                      if (!currentUserId) {
+                        return false;
+                      }
+
+                      return item.addedBy === currentUserId || room.createdBy === currentUserId;
+                    }}
+                    compact
+                    items={previewItems}
+                    maxVisibleItems={ROOM_PREVIEW_VISIBLE_ITEMS}
+                    onRemoveItem={(item) => {
+                      void handleRemoveShareItem(item);
+                    }}
+                    removingItemId={removingItemId}
+                    variant="integrated"
+                  />
+
+                  {channelActionError ? (
+                    <p className="text-[12px] text-[#d78b8b]">{channelActionError}</p>
+                  ) : null}
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    aria-label={`Open the full helix timeline for ${formatChannelLabel(activeChannel)}`}
+                    className="group w-full rounded-[24px] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,255,255,0.28)] focus-visible:ring-offset-0"
+                    onClick={() => setTimelineOpen(true)}
+                    type="button"
+                  >
+                    <RoomHeroHelix
+                      embedded
+                      className="ml-auto w-[124px] sm:w-[164px] lg:w-full lg:max-w-[268px]"
+                      genres={previewGenres.length ? previewGenres : heroGenres}
+                    />
+                  </button>
+                </div>
               </div>
             </section>
-          </>
-        )}
+          )}
+        </div>
       </div>
+      {room && activeChannel ? (
+        <HelixTimelineModal
+          description={`Newest signals in ${formatChannelLabel(activeChannel)} stay at the top. Scroll downward to trace the older drops shaping this lane.`}
+          entries={roomTimelineEntries}
+          eyebrow={room.name}
+          onClose={() => setTimelineOpen(false)}
+          open={timelineOpen}
+          title={`${formatChannelLabel(activeChannel)} timeline`}
+        />
+      ) : null}
+      {activeChannel && room ? (
+        <RoomShareComposerModal
+          channel={activeChannel}
+          channelVibe={activeChannelVibe}
+          onClose={() => setComposerOpen(false)}
+          onSubmit={async (draft) => {
+            await handleAddShareItem(draft);
+            setComposerOpen(false);
+          }}
+          open={composerOpen}
+          visibility={room.visibility}
+        />
+      ) : null}
     </div>
   );
 }

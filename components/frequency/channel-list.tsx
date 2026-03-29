@@ -42,8 +42,8 @@ export function ChannelList({ channels, value, onChange }: ChannelListProps) {
                   className={cn(
                     "flex min-h-11 w-full items-center gap-3 rounded-[18px] px-3 text-left text-[15px] font-medium transition",
                     value === section.id
-                      ? "bg-white text-[var(--text)]"
-                      : "text-[var(--text-soft)] hover:bg-white/60",
+                      ? "bg-[var(--surface-inline-strong)] text-[var(--text)]"
+                      : "text-[var(--text-soft)] hover:bg-[var(--surface-inline)] hover:text-[var(--text)]",
                   )}
                   onClick={() => onChange(section.id)}
                   type="button"
@@ -58,8 +58,8 @@ export function ChannelList({ channels, value, onChange }: ChannelListProps) {
                     className={cn(
                       "flex min-h-11 w-full items-center gap-3 rounded-[18px] px-3 text-left text-[15px] font-medium transition",
                       value === child.id
-                        ? "bg-white text-[var(--text)]"
-                        : "text-[var(--text-soft)] hover:bg-white/60",
+                        ? "bg-[var(--surface-inline-strong)] text-[var(--text)]"
+                        : "text-[var(--text-soft)] hover:bg-[var(--surface-inline)] hover:text-[var(--text)]",
                     )}
                     onClick={() => onChange(child.id)}
                     type="button"

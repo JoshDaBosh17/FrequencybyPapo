@@ -1,8 +1,9 @@
 "use client";
 
-import { startTransition, useState, useTransition } from "react";
+import { useState } from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { useMountedRef } from "@/lib/use-mounted-ref";
 
 function GoogleMark() {
   return (
@@ -30,25 +31,30 @@ function GoogleMark() {
 export function GoogleSignInButton() {
   const { signIn } = useAuth();
   const [error, setError] = useState<string | null>(null);
-  const [pending, startAuthTransition] = useTransition();
+  const [pending, setPending] = useState(false);
+  const mountedRef = useMountedRef();
 
-  function handleSignIn() {
+  async function handleSignIn() {
     setError(null);
-    startAuthTransition(() => {
-      startTransition(async () => {
-        try {
-          await signIn();
-        } catch {
+    setPending(true);
+
+    try {
+      await signIn();
+    } catch {
+      if (mountedRef.current) {
           setError("Google sign-in did not finish. Please try again.");
-        }
-      });
-    });
+      }
+    } finally {
+      if (mountedRef.current) {
+        setPending(false);
+      }
+    }
   }
 
   return (
     <div className="space-y-3">
       <button
-        className="inline-flex min-h-13 w-full items-center justify-center gap-3 rounded-full bg-[var(--text)] px-6 text-[15px] font-medium text-white transition hover:opacity-95 disabled:opacity-70"
+        className="button-primary inline-flex min-h-13 w-full items-center justify-center gap-3 rounded-full px-6 text-[15px] font-medium disabled:opacity-70"
         disabled={pending}
         onClick={handleSignIn}
         type="button"

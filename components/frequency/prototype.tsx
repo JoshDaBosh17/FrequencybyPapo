@@ -5,7 +5,7 @@ import { useState } from "react";
 import { defaultScenario, scenarios } from "@/lib/mock-data";
 import { ChannelId, TabId } from "@/lib/types";
 import { AppShell } from "./app-shell";
-import { HomeScreen, PlayerScreen, ProfileScreen, RoomsScreen } from "./screens";
+import { CompareScreen, HomeScreen, ProfileScreen, RoomsScreen } from "./screens";
 
 export function FrequencyPrototype() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
@@ -14,9 +14,6 @@ export function FrequencyPrototype() {
     defaultScenario.rooms[0]?.id,
   );
   const [selectedChannel, setSelectedChannel] = useState<ChannelId>("overview");
-  const [playerQueueTab, setPlayerQueueTab] = useState<"queue" | "related" | "room-picks">(
-    "queue",
-  );
 
   const scenario = scenarios.find((entry) => entry.id === activeScenarioId) ?? defaultScenario;
 
@@ -27,7 +24,6 @@ export function FrequencyPrototype() {
     setActiveScenarioId(nextScenarioId);
     setSelectedRoomId(nextScenario.rooms[0]?.id);
     setSelectedChannel("overview");
-    setPlayerQueueTab("queue");
   }
 
   return (
@@ -49,13 +45,7 @@ export function FrequencyPrototype() {
           selectedRoomId={selectedRoomId}
         />
       ) : null}
-      {activeTab === "player" ? (
-        <PlayerScreen
-          onQueueTabChange={setPlayerQueueTab}
-          player={scenario.player}
-          queueTab={playerQueueTab}
-        />
-      ) : null}
+      {activeTab === "compare" ? <CompareScreen scenario={scenario} /> : null}
       {activeTab === "profile" ? <ProfileScreen scenario={scenario} /> : null}
     </AppShell>
   );

@@ -1,17 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { getFavoriteArtistEntriesInRecencyOrder } from "@/lib/frequency/taste-profile";
 import { observeJoinedRooms } from "@/lib/firebase/firestore";
 import type { FrequencyRoom } from "@/lib/types";
 import { EmptyStateCard } from "./empty-state-card";
-import { GlassCard } from "./glass-card";
+import { FavoriteArtistsDialog } from "./favorite-artists-dialog";
+import { FavoriteArtistsList } from "./favorite-artists-list";
+import { FavoriteArtistsModal } from "./favorite-artists-modal";
+import { FriendCodeCard } from "./friend-code-card";
 import { UserProfileHeader } from "./user-profile-header";
 
 export function ProfileScreen() {
   const { user, profile } = useAuth();
   const [rooms, setRooms] = useState<FrequencyRoom[]>([]);
+  const [editArtistsOpen, setEditArtistsOpen] = useState(false);
+  const [allArtistsOpen, setAllArtistsOpen] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -21,6 +27,23 @@ export function ProfileScreen() {
     return observeJoinedRooms(user.uid, setRooms);
   }, [user]);
 
+  const orderedArtistEntries = getFavoriteArtistEntriesInRecencyOrder(
+    profile?.favoriteArtists ?? [],
+    profile?.favoriteArtistEntries ?? [],
+  );
+  const primaryGenresByArtist = useMemo(
+    () =>
+      (profile?.artistGenreProfiles ?? []).reduce<Map<string, string | null>>((map, artistProfile) => {
+        map.set(
+          artistProfile.artist.toLowerCase(),
+          artistProfile.primaryTag ?? artistProfile.tags[0] ?? null,
+        );
+        return map;
+      }, new Map()),
+    [profile?.artistGenreProfiles],
+  );
+  const recentArtistEntries = orderedArtistEntries.slice(0, 5);
+
   if (!profile) {
     return null;
   }
@@ -29,45 +52,71 @@ export function ProfileScreen() {
     <div className="space-y-5">
       <UserProfileHeader profile={profile} roomCount={rooms.length} />
 
-      <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-        <GlassCard className="p-5 sm:p-6">
-          <div className="space-y-4">
-            <p className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
-              Favorite artists
-            </p>
-            {profile.favoriteArtists.length ? (
-              <div className="flex flex-wrap gap-3">
-                {profile.favoriteArtists.map((artist) => (
-                  <span
-                    key={artist}
-                    className="rounded-full border border-[var(--line)] bg-white/80 px-4 py-2 text-[14px] text-[var(--text-soft)]"
+      <section className="section-haze-strong rounded-[32px] px-5 py-5 sm:px-6 sm:py-6">
+        <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-8">
+          <div className="space-y-4 lg:pr-6">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
+                Favorite artists
+              </p>
+              <div className="flex flex-wrap justify-end gap-2">
+                {orderedArtistEntries.length > 5 ? (
+                  <button
+                    className="button-secondary min-h-10 rounded-full px-3.5 text-xs font-medium"
+                    onClick={() => setAllArtistsOpen(true)}
+                    type="button"
                   >
-                    {artist}
-                  </span>
-                ))}
+                    Show more
+                  </button>
+                ) : null}
+                <button
+                  className="button-secondary min-h-10 rounded-full px-3.5 text-xs font-medium"
+                  onClick={() => setEditArtistsOpen(true)}
+                  type="button"
+                >
+                  Edit artists
+                </button>
               </div>
+            </div>
+            {recentArtistEntries.length ? (
+              <FavoriteArtistsList
+                compact
+                entries={recentArtistEntries}
+                primaryGenresByArtist={primaryGenresByArtist}
+              />
             ) : (
               <p className="text-[14px] leading-6 text-[var(--text-soft)]">
                 No favorite artists saved yet. The profile still works gracefully while your taste layer is light.
               </p>
             )}
+            {orderedArtistEntries.length > 5 ? (
+              <p className="text-[12px] text-[var(--text-faint)]">
+                Showing the 5 most recent artists first.
+              </p>
+            ) : null}
           </div>
-        </GlassCard>
 
-        <GlassCard className="p-5 sm:p-6">
-          <div className="space-y-4">
-            <p className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
-              Room presence
-            </p>
-            <p className="text-[15px] leading-7 text-[var(--text-soft)]">
-              You&apos;ve joined {rooms.length} room{rooms.length === 1 ? "" : "s"} so far.
-            </p>
-            <p className="text-[14px] leading-6 text-[var(--text-soft)]">
-              More profile depth can layer in later. For now, this is connected to your real auth identity and Firestore profile.
-            </p>
+          <div className="space-y-5 lg:border-l lg:border-[rgba(255,255,255,0.08)] lg:pl-8">
+            <FriendCodeCard
+              description="Share this code with a friend to compare your taste profiles."
+              friendCode={profile.friendCode}
+              title="Friend code"
+            />
+            <div className="section-divider lg:hidden" />
+            <div className="space-y-2 pt-1">
+              <p className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
+                Room presence
+              </p>
+              <p className="text-[15px] leading-7 text-[var(--text-soft)]">
+                You&apos;ve joined {rooms.length} room{rooms.length === 1 ? "" : "s"} so far.
+              </p>
+              <p className="text-[14px] leading-6 text-[var(--text-soft)]">
+                Share your code from here or in Compare when you want someone else to line their taste up against yours.
+              </p>
+            </div>
           </div>
-        </GlassCard>
-      </div>
+        </div>
+      </section>
 
       {!rooms.length ? (
         <EmptyStateCard
@@ -78,6 +127,22 @@ export function ProfileScreen() {
           visual="rooms"
         />
       ) : null}
+
+      {user ? (
+        <FavoriteArtistsDialog
+          initialArtists={profile.favoriteArtists}
+          onboardingComplete={profile.onboardingComplete}
+          onClose={() => setEditArtistsOpen(false)}
+          open={editArtistsOpen}
+          uid={user.uid}
+        />
+      ) : null}
+      <FavoriteArtistsModal
+        entries={orderedArtistEntries}
+        onClose={() => setAllArtistsOpen(false)}
+        open={allArtistsOpen}
+        primaryGenresByArtist={primaryGenresByArtist}
+      />
     </div>
   );
 }
