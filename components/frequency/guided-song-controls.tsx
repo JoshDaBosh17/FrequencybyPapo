@@ -19,6 +19,7 @@ function ChipButton({
   children,
   disabled,
   fullWidth,
+  large,
   onClick,
   tone = "neutral",
 }: {
@@ -26,6 +27,7 @@ function ChipButton({
   children: React.ReactNode;
   disabled?: boolean;
   fullWidth?: boolean;
+  large?: boolean;
   onClick: () => void;
   tone?: "artist" | "genre" | "neutral";
 }) {
@@ -43,8 +45,8 @@ function ChipButton({
 
   return (
     <button
-      className={`min-h-[34px] rounded-full px-3 text-[13px] font-medium leading-none transition ${
-        fullWidth ? "w-full justify-center" : ""
+      className={`${large ? "min-h-[50px] rounded-[20px] px-4 text-[14px]" : "min-h-[34px] rounded-full px-3 text-[13px]"} font-medium leading-none transition ${
+        fullWidth ? "flex w-full items-center justify-center text-center" : ""
       } ${tones[tone]} ${
         disabled
           ? "cursor-not-allowed border-[var(--line)] bg-[rgba(31,36,48,0.54)] text-[var(--text-faint)] shadow-none hover:border-[var(--line)] hover:bg-[rgba(31,36,48,0.54)]"
@@ -231,10 +233,10 @@ export function GuidedSongControls({
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-faint)]">
-            Go
+            Pick a lane
           </p>
           <p className="text-[13px] leading-5 text-[var(--text-soft)]">
-            Pick a lane, then decide how familiar or exploratory the next pick should feel.
+            Pick a lane for your next drop.
           </p>
         </div>
         {resolvedStage > 0 ? (
@@ -275,11 +277,12 @@ export function GuidedSongControls({
       </FlowSection>
 
       <FlowSection show={resolvedStage === 0}>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-2">
           <ChipButton
             active={selectedLane === "artist"}
             disabled={!artistOptions.length}
             fullWidth
+            large
             onClick={() => handleLaneSelect("artist")}
             tone="artist"
           >
@@ -289,6 +292,7 @@ export function GuidedSongControls({
             active={selectedLane === "genre"}
             disabled={!genreOptions.length}
             fullWidth
+            large
             onClick={() => handleLaneSelect("genre")}
             tone="genre"
           >
@@ -354,7 +358,7 @@ export function GuidedSongControls({
               Choose a mode
             </p>
             <p className="text-[12px] leading-5 text-[var(--text-soft)]">
-              Familiar stays close, Blend balances known and new, Explore reaches wider.
+              Stay close, blend it, or wander a little wider.
             </p>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">

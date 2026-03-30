@@ -36,12 +36,15 @@ export async function POST(request: Request) {
       event: "api_room_share_enrich_completed",
       roomId,
       itemId,
+      resolvedKind: result.kind,
       hasAppleMusic: Boolean(result.links?.appleMusic),
       primaryGenre: result.primaryGenre,
       hasSoundCloud: Boolean(result.links?.soundcloud),
       status: result.status,
       source: result.source,
+      sourcePlatform: result.sourcePlatform,
       hasSpotify: Boolean(result.links?.spotify),
+      hasYouTube: Boolean(result.links?.youtube),
     });
 
     return NextResponse.json({ ok: true, result });

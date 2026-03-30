@@ -1,49 +1,46 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   addRoomShareItem,
-  createRoomChannel,
   observeRoom,
   observeRoomShareItems,
+  observeUserProfilesByIds,
   removeRoomShareItem,
+  toggleRoomShareReaction,
 } from "@/lib/firebase/firestore";
-import {
-  buildHelixPreviewGenres,
-  buildRoomHelixTimelineEntries,
-} from "@/lib/frequency/helix-timeline";
-import { getChannelVibe, getRoomIdentityGenres, getRoomVisibilityLabel } from "@/lib/frequency/room-identity";
-import type { FrequencyRoom, RoomShareItem } from "@/lib/types";
+import { getGenreColor } from "@/lib/frequency/genre-colors";
+import { buildSongActivityItems, type SongActivityItem } from "@/lib/frequency/song-activity";
+import type { RoomShareReactionKind } from "@/lib/types";
+import type { FrequencyRoom, RoomShareItem, UserProfile } from "@/lib/types";
 import { formatCount } from "@/lib/utils";
 import { EmptyStateCard } from "./empty-state-card";
 import { GlassCard } from "./glass-card";
-import { HelixTimelineModal } from "./helix-timeline-modal";
-import { RoomChannelSidebar } from "./room-channel-sidebar";
-import { RoomHeroHelix } from "./room-hero-helix";
+import { HomeYouMightLike } from "./home-you-might-like";
+import { ListenOnModal, type ListenableSongItem } from "./listen-on-modal";
+import { RemoveUploadModal } from "./remove-upload-modal";
 import { RoomShareComposerModal } from "./room-share-composer-modal";
-import { RoomShareFeed } from "./room-share-feed";
+import { RoomSongLibrary } from "./room-song-library";
+import { SongFrequencyLane } from "./song-frequency-lane";
+import { TimelineAddMusicButton } from "./timeline-add-music-button";
 
-const ROOM_PREVIEW_VISIBLE_ITEMS = 3;
-
-function normalizeValue(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function formatChannelLabel(channel: string) {
-  return channel.trim().startsWith("#") ? channel.trim() : `#${channel.trim()}`;
-}
+const DEFAULT_ROOM_CHANNEL = "room";
 
 function LoadingRoomLayout() {
   return (
-    <div className="grid gap-5 xl:grid-cols-[288px_minmax(0,1fr)]">
-      <GlassCard strong className="min-h-[480px] rounded-[28px] p-4">
+    <div className="space-y-5">
+      <div className="space-y-3 px-1">
+        <div className="h-12 w-40 rounded-full bg-white/[0.05]" />
+        <div className="h-5 w-56 rounded-full bg-white/[0.05]" />
+      </div>
+      <GlassCard strong className="min-h-[280px] rounded-[32px] p-5">
         <div aria-hidden="true" />
       </GlassCard>
-      <GlassCard strong className="min-h-[620px] rounded-[32px] p-5">
+      <GlassCard strong className="min-h-[420px] rounded-[32px] p-5">
         <div aria-hidden="true" />
       </GlassCard>
     </div>
@@ -54,11 +51,13 @@ export function RoomDetailScreen({ roomId }: { roomId: string }) {
   const { user, profile } = useAuth();
   const [room, setRoom] = useState<FrequencyRoom | null | undefined>(undefined);
   const [shareItems, setShareItems] = useState<RoomShareItem[]>([]);
-  const [preferredChannel, setPreferredChannel] = useState<string | null>(null);
-  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [uploaderProfiles, setUploaderProfiles] = useState<UserProfile[]>([]);
   const [composerOpen, setComposerOpen] = useState(false);
   const [removingItemId, setRemovingItemId] = useState<string | null>(null);
-  const [channelActionError, setChannelActionError] = useState<string | null>(null);
+  const [songPendingRemoval, setSongPendingRemoval] = useState<SongActivityItem | null>(null);
+  const [pendingReactionKey, setPendingReactionKey] = useState<string | null>(null);
+  const [roomActionError, setRoomActionError] = useState<string | null>(null);
+  const [selectedSong, setSelectedSong] = useState<ListenableSongItem | null>(null);
 
   useEffect(() => {
     return observeRoom(roomId, setRoom);
@@ -67,6 +66,18 @@ export function RoomDetailScreen({ roomId }: { roomId: string }) {
   useEffect(() => {
     return observeRoomShareItems(roomId, setShareItems);
   }, [roomId]);
+
+  useEffect(() => {
+    const uploaderIds = Array.from(
+      new Set(
+        shareItems
+          .map((item) => item.addedBy.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    return observeUserProfilesByIds(uploaderIds, setUploaderProfiles);
+  }, [shareItems]);
 
   const canViewRoom = useMemo(() => {
     if (!room) {
@@ -80,58 +91,72 @@ export function RoomDetailScreen({ roomId }: { roomId: string }) {
     return user ? room.memberIds.includes(user.uid) : false;
   }, [room, user]);
 
-  const activeChannel =
-    room?.genreChannels.find((channel) => channel === preferredChannel) ??
-    room?.genreChannels[0] ??
-    null;
-  const activeChannelVibe = activeChannel && room ? getChannelVibe(room, activeChannel) : null;
-  const roomGenres = useMemo(
-    () => getRoomIdentityGenres(room ?? { starterVibe: null, genreChannels: [], channelVibes: {} }),
-    [room],
-  );
-  const heroGenres = useMemo(
+  const roomSongItems = useMemo(
     () =>
-      activeChannel
-        ? [activeChannelVibe ?? "", activeChannel, room?.starterVibe ?? "", ...roomGenres].filter(Boolean)
-        : roomGenres,
-    [activeChannel, activeChannelVibe, room?.starterVibe, roomGenres],
+      buildSongActivityItems({
+        currentUserId: user?.uid ?? profile?.uid ?? null,
+        items: shareItems,
+        rooms: room ? [room] : [],
+        uploaderProfiles,
+      }).map((item) => ({
+        ...item,
+        channel: null,
+        contextLabel: room?.name ?? null,
+      })),
+    [profile?.uid, room, shareItems, uploaderProfiles, user?.uid],
   );
-  const roomTimelineEntries = useMemo(() => {
-    if (!room) {
-      return [];
-    }
-
-    return buildRoomHelixTimelineEntries({
-      activeChannel,
-      room,
-      shareItems,
-    });
-  }, [activeChannel, room, shareItems]);
-  const previewGenres = useMemo(
-    () => buildHelixPreviewGenres(roomTimelineEntries, heroGenres),
-    [heroGenres, roomTimelineEntries],
+  const roomTimelineAccent = useMemo(
+    () => getGenreColor(roomSongItems[0]?.primaryGenre ?? "frequency"),
+    [roomSongItems],
   );
-  const activeChannelItems = useMemo(
+  const roomRecommendationArtists = useMemo(
     () =>
-      activeChannel
-        ? shareItems.filter(
-            (item) => normalizeValue(item.channel) === normalizeValue(activeChannel),
-          )
-        : [],
-    [activeChannel, shareItems],
+      Array.from(new Set(roomSongItems.map((item) => item.artist.trim()).filter(Boolean))).slice(
+        0,
+        6,
+      ),
+    [roomSongItems],
   );
-  const previewItems = useMemo(() => {
-    const musicItems = activeChannelItems.filter(
-      (item) => item.kind === "song" || item.kind === "artist",
-    );
-    const sourceItems = musicItems.length ? musicItems : activeChannelItems;
+  const roomRecommendationGenres = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          roomSongItems
+            .map((item) => item.primaryGenre?.trim())
+            .filter((genre): genre is string => Boolean(genre)),
+        ),
+      ).slice(0, 6),
+    [roomSongItems],
+  );
+  const roomRecommendationSongs = useMemo(
+    () =>
+      roomSongItems.slice(0, 12).map((item) => ({
+        artist: item.artist,
+        title: item.title,
+      })),
+    [roomSongItems],
+  );
+  const roomRecommendationGenreProfile = useMemo(() => {
+    const counts = roomSongItems.reduce<Map<string, number>>((map, item) => {
+      const genre = item.primaryGenre?.trim();
 
-    return sourceItems.slice(0, ROOM_PREVIEW_VISIBLE_ITEMS);
-  }, [activeChannelItems]);
-  async function handleCreateChannel(channel: { name: string; vibe?: string }) {
-    const createdChannel = await createRoomChannel(roomId, channel);
-    setPreferredChannel(createdChannel);
-  }
+      if (!genre) {
+        return map;
+      }
+
+      map.set(genre, (map.get(genre) ?? 0) + 1);
+      return map;
+    }, new Map());
+    const total = Array.from(counts.values()).reduce((sum, count) => sum + count, 0);
+
+    return Array.from(counts.entries())
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 6)
+      .map(([tag, count]) => ({
+        tag,
+        weight: total > 0 ? count / total : 0,
+      }));
+  }, [roomSongItems]);
 
   async function handleAddShareItem(draft: {
     kind: RoomShareItem["kind"];
@@ -140,19 +165,15 @@ export function RoomDetailScreen({ roomId }: { roomId: string }) {
     url?: string | null;
     note?: string | null;
   }) {
-    if (!activeChannel) {
-      throw new Error("Choose a channel first.");
-    }
-
     if (!user && !profile?.uid) {
       throw new Error("Sign in again before sharing.");
     }
 
-    setChannelActionError(null);
+    setRoomActionError(null);
 
     await addRoomShareItem({
       roomId,
-      channel: activeChannel,
+      channel: DEFAULT_ROOM_CHANNEL,
       kind: draft.kind,
       title: draft.title,
       subtitle: draft.subtitle,
@@ -167,11 +188,11 @@ export function RoomDetailScreen({ roomId }: { roomId: string }) {
     const currentUserId = user?.uid ?? profile?.uid ?? null;
 
     if (!currentUserId) {
-      setChannelActionError("Sign in again before removing a drop.");
-      return;
+      setRoomActionError("Sign in again before removing a drop.");
+      return false;
     }
 
-    setChannelActionError(null);
+    setRoomActionError(null);
     setRemovingItemId(item.id);
 
     try {
@@ -180,18 +201,71 @@ export function RoomDetailScreen({ roomId }: { roomId: string }) {
         itemId: item.id,
         removedBy: currentUserId,
       });
+      return true;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "That drop could not be removed.";
-      setChannelActionError(message);
+      setRoomActionError(message);
       console.error("[frequency][room-share]", {
         event: "room_share_item_remove_failed",
         roomId,
         itemId: item.id,
         error: message,
       });
+      return false;
     } finally {
       setRemovingItemId((current) => (current === item.id ? null : current));
+    }
+  }
+
+  async function handleConfirmRemoveShareItem() {
+    if (!songPendingRemoval) {
+      return;
+    }
+
+    const removed = await handleRemoveShareItem(songPendingRemoval.rawItem);
+
+    if (removed) {
+      setSongPendingRemoval(null);
+    }
+  }
+
+  async function handleToggleReaction(
+    item: SongActivityItem,
+    reaction: RoomShareReactionKind,
+  ) {
+    const currentUserId = user?.uid ?? profile?.uid ?? null;
+
+    if (!currentUserId) {
+      setRoomActionError("Sign in again before reacting.");
+      return;
+    }
+
+    const reactionKey = `${item.roomId}:${item.id}:${reaction}`;
+
+    setRoomActionError(null);
+    setPendingReactionKey(reactionKey);
+
+    try {
+      await toggleRoomShareReaction({
+        itemId: item.id,
+        reaction,
+        roomId,
+        uid: currentUserId,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "That reaction could not be updated.";
+      setRoomActionError(message);
+      console.error("[frequency][room-share-reaction]", {
+        event: "room_share_reaction_toggle_failed",
+        itemId: item.id,
+        reaction,
+        roomId,
+        error: message,
+      });
+    } finally {
+      setPendingReactionKey((current) => (current === reactionKey ? null : current));
     }
   }
 
@@ -224,135 +298,133 @@ export function RoomDetailScreen({ roomId }: { roomId: string }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6 sm:space-y-7">
       <Link
-        className="button-secondary inline-flex min-h-10 items-center gap-2 rounded-full px-3.5 text-sm font-medium"
+        className="inline-flex min-h-10 items-center gap-2 px-1 text-sm font-medium text-[var(--text-soft)] transition hover:text-[var(--text)]"
         href="/rooms"
       >
         <ArrowLeft className="size-4" />
         Back to rooms
       </Link>
 
-      <div className="grid gap-5 xl:grid-cols-[288px_minmax(0,1fr)]">
-        <div className="xl:sticky xl:top-24 xl:self-start">
-          <RoomChannelSidebar
-            channels={room.genreChannels}
-            channelVibes={room.channelVibes}
-            memberCountLabel={formatCount(room.memberIds.length, "member")}
-            onCreateChannel={handleCreateChannel}
-            onSelectChannel={setPreferredChannel}
-            roomName={room.name}
-            roomVisibilityLabel={getRoomVisibilityLabel(room.visibility)}
-            selectedChannel={activeChannel}
-            starterVibe={room.starterVibe}
-          />
+      <div className="space-y-7 sm:space-y-8">
+        <div className="space-y-2 px-1">
+          <p className="text-[clamp(2rem,5vw,3.25rem)] font-semibold leading-[0.96] tracking-[-0.05em] text-[var(--text)]">
+            {room.name}
+          </p>
+          <p className="text-[15px] leading-6 text-[var(--text-soft)]">
+            {formatCount(room.memberIds.length, "member")}
+          </p>
         </div>
 
-        <div className="min-w-0 space-y-4">
-          {!activeChannel ? (
-            <EmptyStateCard
-              body="Create the first channel from the sidebar so this room has a place for songs, artists, and links."
-              primaryAction="Back to rooms"
-              primaryHref="/rooms"
-              title="This room needs its first channel"
-              visual="rooms"
+        <section className="section-haze-strong relative isolate overflow-hidden rounded-[32px] border border-[rgba(255,255,255,0.06)] px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_42px_rgba(0,0,0,0.16)] sm:px-6 sm:py-6">
+          <div className="space-y-5 sm:space-y-6">
+            <div className="space-y-1.5">
+              <h2 className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
+                {`${room.name}'s Timeline`}
+              </h2>
+              <p className="text-[14px] leading-6 text-[var(--text-soft)]">
+                Shared songs moving through this room right now.
+              </p>
+            </div>
+
+            {roomActionError ? (
+              <p className="text-[12px] leading-5 text-[#d7a0a0]">{roomActionError}</p>
+            ) : null}
+
+            <SongFrequencyLane
+              className="-mx-1 sm:mx-0"
+              defaultToRecent
+              emptyBody="Add the first song to start shaping this shared frequency."
+              emptyTitle="No songs in this room yet"
+              endLabel={null}
+              items={roomSongItems}
+              onSelectItem={(item) => setSelectedSong(item)}
+              onToggleReaction={(item, reaction) => {
+                void handleToggleReaction(item, reaction);
+              }}
+              pendingReactionKey={pendingReactionKey}
+              reactionUserId={user?.uid ?? profile?.uid ?? null}
+              showReactions
+              startLabel={null}
             />
-          ) : (
-            <section>
-              <div className="grid grid-cols-[minmax(0,1fr)_124px] items-start gap-4 sm:grid-cols-[minmax(0,1fr)_164px] sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)] lg:gap-8">
-                <div className="min-w-0 space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
-                        Recent additions
-                      </p>
-                      {previewItems.length ? (
-                        <p className="text-[13px] leading-5 text-[var(--text-soft)]">
-                          {formatCount(previewItems.length, "drop")} shaping this lane right now.
-                        </p>
-                      ) : null}
-                    </div>
 
-                    <button
-                      aria-label={`Add music to ${formatChannelLabel(activeChannel)}`}
-                      className="button-secondary inline-flex size-10 shrink-0 items-center justify-center rounded-full"
-                      onClick={() => {
-                        setChannelActionError(null);
-                        setComposerOpen(true);
-                      }}
-                      type="button"
-                    >
-                      <Plus className="size-4" />
-                    </button>
-                  </div>
+            <div className="pt-2 sm:pt-3">
+              <TimelineAddMusicButton
+                accentColor={roomTimelineAccent}
+                onClick={() => {
+                  setRoomActionError(null);
+                  setComposerOpen(true);
+                }}
+              />
+            </div>
+          </div>
+        </section>
 
-                  <RoomShareFeed
-                    activeChannel={activeChannel}
-                    canRemoveItem={(item) => {
-                      const currentUserId = user?.uid ?? profile?.uid ?? null;
-                      if (!currentUserId) {
-                        return false;
-                      }
-
-                      return item.addedBy === currentUserId || room.createdBy === currentUserId;
-                    }}
-                    compact
-                    items={previewItems}
-                    maxVisibleItems={ROOM_PREVIEW_VISIBLE_ITEMS}
-                    onRemoveItem={(item) => {
-                      void handleRemoveShareItem(item);
-                    }}
-                    removingItemId={removingItemId}
-                    variant="integrated"
-                  />
-
-                  {channelActionError ? (
-                    <p className="text-[12px] text-[#d78b8b]">{channelActionError}</p>
-                  ) : null}
-                </div>
-
-                <div className="flex justify-end pt-1">
-                  <button
-                    aria-label={`Open the full helix timeline for ${formatChannelLabel(activeChannel)}`}
-                    className="group w-full rounded-[24px] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,255,255,0.28)] focus-visible:ring-offset-0"
-                    onClick={() => setTimelineOpen(true)}
-                    type="button"
-                  >
-                    <RoomHeroHelix
-                      embedded
-                      className="ml-auto w-[124px] sm:w-[164px] lg:w-full lg:max-w-[268px]"
-                      genres={previewGenres.length ? previewGenres : heroGenres}
-                    />
-                  </button>
-                </div>
-              </div>
-            </section>
-          )}
-        </div>
-      </div>
-      {room && activeChannel ? (
-        <HelixTimelineModal
-          description={`Newest signals in ${formatChannelLabel(activeChannel)} stay at the top. Scroll downward to trace the older drops shaping this lane.`}
-          entries={roomTimelineEntries}
-          eyebrow={room.name}
-          onClose={() => setTimelineOpen(false)}
-          open={timelineOpen}
-          title={`${formatChannelLabel(activeChannel)} timeline`}
+        <HomeYouMightLike
+          emptyMessage="Add a few songs to this room to unlock recommendations here."
+          favoriteArtists={[]}
+          genreProfile={roomRecommendationGenreProfile}
+          onSelectRecommendation={(item) => setSelectedSong(item)}
+          recentArtists={roomRecommendationArtists}
+          recentGenres={roomRecommendationGenres}
+          recentSongs={roomRecommendationSongs}
+          scope={`room:${room.id}`}
+          subtitle="Room picks held steady until you refresh them."
+          title="Recommended Songs"
+          uid={profile?.uid ?? user?.uid ?? null}
         />
-      ) : null}
-      {activeChannel && room ? (
+
+        <RoomSongLibrary
+          canRemoveItem={(item) => {
+            const currentUserId = user?.uid ?? profile?.uid ?? null;
+            if (!currentUserId) {
+              return false;
+            }
+
+            return item.rawItem.addedBy === currentUserId || room.createdBy === currentUserId;
+          }}
+          items={roomSongItems}
+          onRemoveItem={(item) => {
+            setRoomActionError(null);
+            setSongPendingRemoval(item);
+          }}
+          onSelectItem={(item) => setSelectedSong(item)}
+          removingItemId={removingItemId}
+        />
+      </div>
+      {room ? (
         <RoomShareComposerModal
-          channel={activeChannel}
-          channelVibe={activeChannelVibe}
           onClose={() => setComposerOpen(false)}
           onSubmit={async (draft) => {
             await handleAddShareItem(draft);
             setComposerOpen(false);
           }}
           open={composerOpen}
+          roomName={room.name}
           visibility={room.visibility}
         />
       ) : null}
+      <RemoveUploadModal
+        closeLabel="Close remove song"
+        confirmLabel="Remove"
+        description={
+          songPendingRemoval
+            ? `Remove ${songPendingRemoval.title} by ${songPendingRemoval.artist} from this room?`
+            : undefined
+        }
+        eyebrow="Remove song"
+        item={songPendingRemoval}
+        onClose={() => {
+          if (!removingItemId) {
+            setSongPendingRemoval(null);
+          }
+        }}
+        onConfirm={() => void handleConfirmRemoveShareItem()}
+        pending={Boolean(songPendingRemoval && removingItemId === songPendingRemoval.id)}
+        title="Are you sure?"
+      />
+      <ListenOnModal item={selectedSong} onClose={() => setSelectedSong(null)} />
     </div>
   );
 }

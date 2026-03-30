@@ -7,7 +7,7 @@ import {
   buildRoomShareUrlLabel,
   getRoomShareKindLabel,
 } from "@/lib/frequency/room-share";
-import type { RoomShareItem } from "@/lib/types";
+import type { RoomShareItem, RoomShareSourcePlatform } from "@/lib/types";
 
 function RoomShareIcon({ kind }: { kind: RoomShareItem["kind"] }) {
   if (kind === "artist") {
@@ -21,16 +21,27 @@ function RoomShareIcon({ kind }: { kind: RoomShareItem["kind"] }) {
   return <Music4 className="size-4" />;
 }
 
-type RoomSharePlatform = "spotify" | "appleMusic" | "soundcloud";
+type RoomSharePlatform = RoomShareSourcePlatform;
 
 const ROOM_SHARE_PLATFORM_ORDER = [
   "spotify",
   "appleMusic",
   "soundcloud",
+  "youtube",
 ] satisfies RoomSharePlatform[];
 
-function getRoomSharePlatformEntries(links: RoomShareItem["links"]) {
-  return ROOM_SHARE_PLATFORM_ORDER
+function getRoomSharePlatformEntries(
+  links: RoomShareItem["links"],
+  preferredPlatform?: RoomShareItem["sourcePlatform"],
+) {
+  const orderedPlatforms = preferredPlatform
+    ? [
+        preferredPlatform,
+        ...ROOM_SHARE_PLATFORM_ORDER.filter((platform) => platform !== preferredPlatform),
+      ]
+    : ROOM_SHARE_PLATFORM_ORDER;
+
+  return orderedPlatforms
     .map((platform) => ({
       platform,
       url: links?.[platform] ?? null,
@@ -45,6 +56,10 @@ function getRoomSharePlatformLabel(platform: RoomSharePlatform) {
 
   if (platform === "soundcloud") {
     return "SoundCloud";
+  }
+
+  if (platform === "youtube") {
+    return "YouTube";
   }
 
   return "Spotify";
@@ -90,6 +105,18 @@ function RoomSharePlatformIcon({ platform }: { platform: RoomSharePlatform }) {
     );
   }
 
+  if (platform === "youtube") {
+    return (
+      <svg aria-hidden="true" className="size-3.5" viewBox="0 0 24 24">
+        <path
+          d="M20.3 7.7a2.6 2.6 0 0 0-1.8-1.8C16.9 5.5 12 5.5 12 5.5s-4.9 0-6.5.4A2.6 2.6 0 0 0 3.7 7.7 27 27 0 0 0 3.3 12c0 1.5.1 2.9.4 4.3a2.6 2.6 0 0 0 1.8 1.8c1.6.4 6.5.4 6.5.4s4.9 0 6.5-.4a2.6 2.6 0 0 0 1.8-1.8c.3-1.4.4-2.8.4-4.3s-.1-2.9-.4-4.3Z"
+          fill="currentColor"
+        />
+        <path d="m10 15.2 4.8-3.2L10 8.8v6.4Z" fill="var(--surface-base)" />
+      </svg>
+    );
+  }
+
   return (
     <svg aria-hidden="true" className="size-3.5" viewBox="0 0 24 24">
       <path
@@ -110,13 +137,15 @@ function RoomSharePlatformIcon({ platform }: { platform: RoomSharePlatform }) {
 function RoomSharePlatformLinks({
   compact,
   links,
+  preferredPlatform,
   title,
 }: {
   compact: boolean;
   links: RoomShareItem["links"];
+  preferredPlatform?: RoomShareItem["sourcePlatform"];
   title: string;
 }) {
-  const platformEntries = getRoomSharePlatformEntries(links);
+  const platformEntries = getRoomSharePlatformEntries(links, preferredPlatform);
 
   if (!platformEntries.length) {
     return null;
@@ -221,8 +250,8 @@ export function RoomShareFeed({
         {visibleItems.map((item) => {
           const displayTitle = item.resolvedTrack?.trim() || item.title;
           const displaySubtitle = item.resolvedArtist?.trim() || item.subtitle;
-          const hasPlatformLinks = getRoomSharePlatformEntries(item.links).length > 0;
-          const showSourceUrl = item.kind !== "song" && Boolean(item.url);
+          const hasPlatformLinks = getRoomSharePlatformEntries(item.links, item.sourcePlatform).length > 0;
+          const showSourceUrl = item.kind !== "song" && Boolean(item.url) && !hasPlatformLinks;
           const removable = canRemoveItem ? canRemoveItem(item) : Boolean(onRemoveItem);
           const removePending = removingItemId === item.id;
 
@@ -297,7 +326,12 @@ export function RoomShareFeed({
 
               {hasPlatformLinks || showSourceUrl || removable ? (
                 <div className="flex shrink-0 items-start gap-1.5">
-                  <RoomSharePlatformLinks compact={compact} links={item.links} title={displayTitle} />
+                  <RoomSharePlatformLinks
+                    compact={compact}
+                    links={item.links}
+                    preferredPlatform={item.sourcePlatform}
+                    title={displayTitle}
+                  />
                   {showSourceUrl ? (
                     <Link
                       className={
@@ -344,8 +378,8 @@ export function RoomShareFeed({
       {visibleItems.map((item) => {
         const displayTitle = item.resolvedTrack?.trim() || item.title;
         const displaySubtitle = item.resolvedArtist?.trim() || item.subtitle;
-        const hasPlatformLinks = getRoomSharePlatformEntries(item.links).length > 0;
-        const showSourceUrl = item.kind !== "song" && Boolean(item.url);
+        const hasPlatformLinks = getRoomSharePlatformEntries(item.links, item.sourcePlatform).length > 0;
+        const showSourceUrl = item.kind !== "song" && Boolean(item.url) && !hasPlatformLinks;
         const removable = canRemoveItem ? canRemoveItem(item) : Boolean(onRemoveItem);
         const removePending = removingItemId === item.id;
 
@@ -378,7 +412,12 @@ export function RoomShareFeed({
 
               {hasPlatformLinks || showSourceUrl || removable ? (
                 <div className="flex shrink-0 items-center gap-2">
-                  <RoomSharePlatformLinks compact={false} links={item.links} title={displayTitle} />
+                  <RoomSharePlatformLinks
+                    compact={false}
+                    links={item.links}
+                    preferredPlatform={item.sourcePlatform}
+                    title={displayTitle}
+                  />
                   {showSourceUrl ? (
                     <Link
                       className="button-secondary inline-flex min-h-10 items-center gap-2 rounded-full px-3 text-xs font-medium"

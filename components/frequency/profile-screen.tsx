@@ -3,21 +3,33 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { buildSongActivityItems, type SongActivityItem } from "@/lib/frequency/song-activity";
 import { getFavoriteArtistEntriesInRecencyOrder } from "@/lib/frequency/taste-profile";
-import { observeJoinedRooms } from "@/lib/firebase/firestore";
-import type { FrequencyRoom } from "@/lib/types";
+import {
+  observeJoinedRooms,
+  observeRoomShareItemsByRoomIds,
+  removeRoomShareItem,
+} from "@/lib/firebase/firestore";
+import type { FrequencyRoom, RoomShareItem } from "@/lib/types";
 import { EmptyStateCard } from "./empty-state-card";
 import { FavoriteArtistsDialog } from "./favorite-artists-dialog";
 import { FavoriteArtistsList } from "./favorite-artists-list";
 import { FavoriteArtistsModal } from "./favorite-artists-modal";
 import { FriendCodeCard } from "./friend-code-card";
+import { ListenOnModal } from "./listen-on-modal";
+import { RemoveUploadModal } from "./remove-upload-modal";
+import { SongActivityFeed } from "./song-activity-feed";
 import { UserProfileHeader } from "./user-profile-header";
 
 export function ProfileScreen() {
   const { user, profile } = useAuth();
   const [rooms, setRooms] = useState<FrequencyRoom[]>([]);
+  const [roomShareItems, setRoomShareItems] = useState<RoomShareItem[]>([]);
   const [editArtistsOpen, setEditArtistsOpen] = useState(false);
   const [allArtistsOpen, setAllArtistsOpen] = useState(false);
+  const [selectedSong, setSelectedSong] = useState<SongActivityItem | null>(null);
+  const [pendingRemovalItemId, setPendingRemovalItemId] = useState<string | null>(null);
+  const [songPendingRemoval, setSongPendingRemoval] = useState<SongActivityItem | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -26,6 +38,13 @@ export function ProfileScreen() {
 
     return observeJoinedRooms(user.uid, setRooms);
   }, [user]);
+
+  useEffect(() => {
+    return observeRoomShareItemsByRoomIds(
+      rooms.map((room) => room.id),
+      setRoomShareItems,
+    );
+  }, [rooms]);
 
   const orderedArtistEntries = getFavoriteArtistEntriesInRecencyOrder(
     profile?.favoriteArtists ?? [],
@@ -43,14 +62,72 @@ export function ProfileScreen() {
     [profile?.artistGenreProfiles],
   );
   const recentArtistEntries = orderedArtistEntries.slice(0, 5);
+  const personalUploadItems = useMemo(
+    () =>
+      buildSongActivityItems({
+        currentUserId: profile?.uid ?? null,
+        items: roomShareItems.filter((item) => item.addedBy === profile?.uid),
+        rooms,
+        uploaderProfiles: profile ? [profile] : [],
+      }),
+    [profile, roomShareItems, rooms],
+  );
 
   if (!profile) {
     return null;
   }
 
+  const profileUid = profile.uid;
+
+  async function handleConfirmRemoveUpload() {
+    if (!songPendingRemoval) {
+      return;
+    }
+
+    const currentUserId = user?.uid ?? profileUid;
+    setPendingRemovalItemId(songPendingRemoval.id);
+
+    try {
+      await removeRoomShareItem({
+        itemId: songPendingRemoval.id,
+        removedBy: currentUserId,
+        roomId: songPendingRemoval.roomId,
+      });
+      setSongPendingRemoval(null);
+    } finally {
+      setPendingRemovalItemId((current) =>
+        current === songPendingRemoval.id ? null : current,
+      );
+    }
+  }
+
   return (
     <div className="space-y-5">
       <UserProfileHeader profile={profile} roomCount={rooms.length} />
+
+      <section className="section-haze-strong rounded-[32px] px-5 py-5 sm:px-6 sm:py-6">
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
+              Your uploads
+            </p>
+            <p className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
+              Songs you&apos;ve dropped across Frequency
+            </p>
+          </div>
+          <SongActivityFeed
+            emptyBody="Songs you add from Home or Rooms will collect here."
+            emptyTitle="No uploads yet"
+            items={personalUploadItems}
+            maxVisibleItems={8}
+            canRemoveItem={() => Boolean(user?.uid ?? profileUid)}
+            onRemoveItem={(item) => setSongPendingRemoval(item)}
+            onSelectItem={(item) => setSelectedSong(item)}
+            removingItemId={pendingRemovalItemId}
+            showContext
+          />
+        </div>
+      </section>
 
       <section className="section-haze-strong rounded-[32px] px-5 py-5 sm:px-6 sm:py-6">
         <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-8">
@@ -143,6 +220,17 @@ export function ProfileScreen() {
         open={allArtistsOpen}
         primaryGenresByArtist={primaryGenresByArtist}
       />
+      <RemoveUploadModal
+        item={songPendingRemoval}
+        onClose={() => {
+          if (!pendingRemovalItemId) {
+            setSongPendingRemoval(null);
+          }
+        }}
+        onConfirm={() => void handleConfirmRemoveUpload()}
+        pending={Boolean(songPendingRemoval && pendingRemovalItemId === songPendingRemoval.id)}
+      />
+      <ListenOnModal item={selectedSong} onClose={() => setSelectedSong(null)} />
     </div>
   );
 }

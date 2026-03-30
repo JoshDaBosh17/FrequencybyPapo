@@ -1,18 +1,30 @@
-import type { RoomSharePlatformLinks } from "@/lib/types"
+import type {
+  RoomShareKind,
+  RoomSharePlatformLinks,
+  RoomShareSourcePlatform,
+} from "@/lib/types"
 
 import { adminDb } from "./firebase-admin";
 import { setAdminDocument } from "./firestore-write";
 import { getArtistTopTags, getTrackTopTags } from "./lastfm";
-import { resolveSongMetadataAndLinks } from "./song-platform-links";
+import {
+  detectMusicSourcePlatform,
+  extractDirectPlatformLinks,
+  extractMusicLinkMetadata,
+  resolveSongMetadataAndLinks,
+} from "./song-platform-links";
 
 type RoomShareEnrichmentStatus = "ready" | "error";
 
 type RoomShareEnrichmentResult = {
   itemId: string;
   roomId: string;
+  kind: RoomShareKind;
   title: string;
+  subtitle: string | null;
   artist: string | null;
   track: string | null;
+  sourcePlatform: RoomShareSourcePlatform | null;
   links: RoomSharePlatformLinks | null;
   primaryGenre: string | null;
   status: RoomShareEnrichmentStatus;
@@ -29,6 +41,7 @@ type StoredRoomShareItem = {
   subtitle?: string | null;
   url?: string | null;
   note?: string | null;
+  sourcePlatform?: RoomShareSourcePlatform | null;
   links?: RoomSharePlatformLinks | null;
   addedBy?: string;
   addedByName?: string | null;
@@ -58,6 +71,47 @@ function isNonEmptyString(value: unknown): value is string {
 
 function normalizeText(value: string | null | undefined) {
   return value?.trim().replace(/\s+/g, " ") || null;
+}
+
+function emptyPlatformLinks(): RoomSharePlatformLinks {
+  return {
+    appleMusic: null,
+    soundcloud: null,
+    spotify: null,
+    youtube: null,
+  };
+}
+
+function mergePlatformLinks(...linkSets: Array<RoomSharePlatformLinks | null | undefined>) {
+  return linkSets.reduce<RoomSharePlatformLinks>((merged, linkSet) => {
+    if (!linkSet) {
+      return merged;
+    }
+
+    return {
+      appleMusic: linkSet.appleMusic ?? merged.appleMusic ?? null,
+      soundcloud: linkSet.soundcloud ?? merged.soundcloud ?? null,
+      spotify: linkSet.spotify ?? merged.spotify ?? null,
+      youtube: linkSet.youtube ?? merged.youtube ?? null,
+    };
+  }, emptyPlatformLinks());
+}
+
+function addSourceLink(params: {
+  links: RoomSharePlatformLinks | null | undefined;
+  sourcePlatform: RoomShareSourcePlatform | null;
+  sourceUrl: string | null;
+}) {
+  const mergedLinks = mergePlatformLinks(params.links);
+
+  if (!params.sourcePlatform || !params.sourceUrl) {
+    return mergedLinks;
+  }
+
+  return {
+    ...mergedLinks,
+    [params.sourcePlatform]: params.sourceUrl,
+  } satisfies RoomSharePlatformLinks;
 }
 
 function resolvePrimaryGenre(tags: Array<{ tag: string; weight: number }>) {
@@ -203,9 +257,12 @@ async function resolveRoomShareMetadata(item: StoredRoomShareItem) {
 async function updateRoomShareEnrichmentState(params: {
   roomId: string;
   itemId: string;
+  kind: RoomShareKind;
   title: string;
+  subtitle: string | null;
   artist: string | null;
   track: string | null;
+  sourcePlatform: RoomShareSourcePlatform | null;
   links: RoomSharePlatformLinks | null;
   primaryGenre: string | null;
   status: RoomShareEnrichmentStatus;
@@ -217,8 +274,12 @@ async function updateRoomShareEnrichmentState(params: {
   await setAdminDocument(
     itemRef,
     {
+      kind: params.kind,
+      title: params.title,
+      subtitle: params.subtitle,
       resolvedArtist: params.artist,
       resolvedTrack: params.track,
+      sourcePlatform: params.sourcePlatform,
       links: params.links,
       primaryGenre: params.primaryGenre,
       enrichmentStatus: params.status,
@@ -236,9 +297,12 @@ async function updateRoomShareEnrichmentState(params: {
   logRoomShareEnrichment("room_share_enrichment_stored", {
     roomId: params.roomId,
     itemId: params.itemId,
+    kind: params.kind,
     title: params.title,
+    subtitle: params.subtitle,
     artist: params.artist,
     track: params.track,
+    sourcePlatform: params.sourcePlatform,
     links: params.links,
     primaryGenre: params.primaryGenre,
     status: params.status,
@@ -263,42 +327,113 @@ export async function enrichRoomShareItem({
 
   const item = itemSnapshot.data() as StoredRoomShareItem;
   const normalizedTitle = normalizeText(item.title) ?? "Shared drop";
+  const normalizedSubtitle = normalizeText(item.subtitle);
+  const normalizedUrl = normalizeText(item.url);
+  const detectedSourcePlatform =
+    item.sourcePlatform ?? detectMusicSourcePlatform(normalizedUrl);
 
   logRoomShareEnrichment("room_share_enrichment_started", {
     roomId,
     itemId,
     kind: item.kind ?? null,
     title: normalizedTitle,
-    subtitle: normalizeText(item.subtitle),
-    url: normalizeText(item.url),
+    subtitle: normalizedSubtitle,
+    sourcePlatform: detectedSourcePlatform,
+    url: normalizedUrl,
   });
 
   try {
     const resolvedMetadata = await resolveRoomShareMetadata(item);
+    let storedKind: RoomShareKind = item.kind ?? "song";
+    let storedTitle = normalizedTitle;
+    let storedSubtitle = normalizedSubtitle;
     let resolvedArtist = resolvedMetadata.resolvedArtist;
     let resolvedTrack = resolvedMetadata.resolvedTrack;
-    let links: RoomSharePlatformLinks | null = null;
+    let sourcePlatform = detectedSourcePlatform;
+    let links = addSourceLink({
+      links: extractDirectPlatformLinks(normalizedUrl),
+      sourcePlatform: detectedSourcePlatform,
+      sourceUrl: normalizedUrl,
+    });
 
     logRoomShareEnrichment("room_share_metadata_parsed", {
       roomId,
       itemId,
       parsedArtist: resolvedArtist,
       parsedTrack: resolvedTrack,
+      sourcePlatform,
     });
 
-    if (item.kind === "song" && resolvedArtist && resolvedTrack) {
+    if (storedKind === "link" && normalizedUrl) {
+      logRoomShareEnrichment("room_share_link_metadata_started", {
+        roomId,
+        itemId,
+        sourcePlatform,
+        url: normalizedUrl,
+      });
+
+      const linkMetadata = await extractMusicLinkMetadata(normalizedUrl).catch((error) => {
+        logRoomShareEnrichment("room_share_link_metadata_failed", {
+          roomId,
+          itemId,
+          url: normalizedUrl,
+          error: error instanceof Error ? error.message : "Link metadata extraction failed.",
+        });
+        return null;
+      });
+
+      if (linkMetadata?.sourcePlatform) {
+        sourcePlatform = linkMetadata.sourcePlatform;
+      }
+
+      links = addSourceLink({
+        links,
+        sourcePlatform,
+        sourceUrl: normalizedUrl,
+      });
+
+      if (linkMetadata?.artist || linkMetadata?.title) {
+        resolvedArtist = linkMetadata.artist ?? resolvedArtist;
+        resolvedTrack = linkMetadata.title ?? resolvedTrack;
+      }
+
+      logRoomShareEnrichment("room_share_link_metadata_completed", {
+        roomId,
+        itemId,
+        sourcePlatform,
+        resolvedArtist,
+        resolvedTrack,
+      });
+
+      if (resolvedArtist && resolvedTrack) {
+        storedKind = "song";
+        storedTitle = resolvedTrack;
+        storedSubtitle = resolvedArtist;
+
+        logRoomShareEnrichment("room_share_link_promoted_to_song", {
+          roomId,
+          itemId,
+          sourcePlatform,
+          title: storedTitle,
+          subtitle: storedSubtitle,
+        });
+      }
+    }
+
+    if (storedKind === "song" && resolvedArtist && resolvedTrack) {
       logRoomShareEnrichment("room_share_song_support_started", {
         roomId,
         itemId,
         artist: resolvedArtist,
         track: resolvedTrack,
-        url: normalizeText(item.url),
+        url: normalizedUrl,
+        sourcePlatform,
       });
 
       const songSupport = await resolveSongMetadataAndLinks({
         artist: resolvedArtist,
         title: resolvedTrack,
-        url: normalizeText(item.url),
+        url: normalizedUrl,
       }).catch((error) => {
         logRoomShareEnrichment("room_share_song_support_failed", {
           roomId,
@@ -313,7 +448,14 @@ export async function enrichRoomShareItem({
       if (songSupport) {
         resolvedArtist = songSupport.artist;
         resolvedTrack = songSupport.title;
-        links = songSupport.links;
+        storedKind = "song";
+        storedTitle = songSupport.title;
+        storedSubtitle = songSupport.artist;
+        links = addSourceLink({
+          links: mergePlatformLinks(links, songSupport.links),
+          sourcePlatform,
+          sourceUrl: normalizedUrl,
+        });
 
         logRoomShareEnrichment("room_share_song_support_completed", {
           roomId,
@@ -332,11 +474,14 @@ export async function enrichRoomShareItem({
         error: "missing_metadata",
         itemId,
         links,
+        kind: storedKind,
         primaryGenre: null,
         roomId,
         source: null,
+        sourcePlatform,
         status: "error",
-        title: normalizedTitle,
+        subtitle: storedSubtitle,
+        title: storedTitle,
         track: resolvedTrack,
       } satisfies RoomShareEnrichmentResult;
 
@@ -346,6 +491,7 @@ export async function enrichRoomShareItem({
         itemId,
         reason: "missing_metadata",
         links,
+        sourcePlatform,
       });
       return result;
     }
@@ -424,11 +570,14 @@ export async function enrichRoomShareItem({
         error: "empty_lastfm_response",
         itemId,
         links,
+        kind: storedKind,
         primaryGenre: null,
         roomId,
         source,
+        sourcePlatform,
         status: "error",
-        title: normalizedTitle,
+        subtitle: storedSubtitle,
+        title: storedTitle,
         track: resolvedTrack,
       } satisfies RoomShareEnrichmentResult;
 
@@ -440,6 +589,7 @@ export async function enrichRoomShareItem({
         artist: resolvedArtist,
         track: resolvedTrack,
         links,
+        sourcePlatform,
       });
       return result;
     }
@@ -449,11 +599,14 @@ export async function enrichRoomShareItem({
       error: null,
       itemId,
       links,
+      kind: storedKind,
       primaryGenre,
       roomId,
       source,
+      sourcePlatform,
       status: "ready",
-      title: normalizedTitle,
+      subtitle: storedSubtitle,
+      title: storedTitle,
       track: resolvedTrack,
     } satisfies RoomShareEnrichmentResult;
 
@@ -467,11 +620,18 @@ export async function enrichRoomShareItem({
       artist: null,
       error: message,
       itemId,
-      links: null,
+      links: addSourceLink({
+        links: extractDirectPlatformLinks(normalizedUrl),
+        sourcePlatform: detectedSourcePlatform,
+        sourceUrl: normalizedUrl,
+      }),
+      kind: item.kind ?? "song",
       primaryGenre: null,
       roomId,
       source: null,
+      sourcePlatform: detectedSourcePlatform,
       status: "error",
+      subtitle: normalizedSubtitle,
       title: normalizedTitle,
       track: null,
     });
@@ -480,6 +640,7 @@ export async function enrichRoomShareItem({
       roomId,
       itemId,
       error: message,
+      sourcePlatform: detectedSourcePlatform,
     });
     throw error;
   }

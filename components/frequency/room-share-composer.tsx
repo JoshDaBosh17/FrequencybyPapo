@@ -69,6 +69,7 @@ export function RoomShareComposer({
   const [songCommentInput, setSongCommentInput] = useState("");
   const [artistInput, setArtistInput] = useState("");
   const [linkInput, setLinkInput] = useState("");
+  const [linkCommentInput, setLinkCommentInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [artistCorrection, setArtistCorrection] = useState<ArtistCorrectionState | null>(null);
@@ -88,6 +89,7 @@ export function RoomShareComposer({
     }
 
     setLinkInput("");
+    setLinkCommentInput("");
   }
 
   async function submitDraft(draft: RoomShareSubmitDraft) {
@@ -162,6 +164,7 @@ export function RoomShareComposer({
     }
 
     return buildLinkRoomShareDraft({
+      note: linkCommentInput,
       url: linkInput,
     });
   }
@@ -415,7 +418,7 @@ export function RoomShareComposer({
         ) : null}
 
         {kind === "link" ? (
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="space-y-3">
             <div className="space-y-2">
               <FieldLabel>Paste link</FieldLabel>
               <input
@@ -432,12 +435,27 @@ export function RoomShareComposer({
               />
             </div>
             <div className="space-y-2">
-              <div aria-hidden="true" className="h-[18px]" />
+              <FieldLabel>Comment (optional)</FieldLabel>
+              <textarea
+                className={
+                  compact
+                    ? "field-surface min-h-[84px] w-full rounded-[16px] px-4 py-3 text-[13px] leading-5"
+                    : "field-surface min-h-[92px] w-full rounded-[18px] px-4 py-3 text-[14px] leading-6"
+                }
+                onChange={(event) => {
+                  setLinkCommentInput(event.target.value);
+                  setError(null);
+                }}
+                rows={3}
+                value={linkCommentInput}
+              />
+            </div>
+            <div className="flex justify-end">
               <button
                 className={
                   compact
-                    ? "button-primary min-h-11 w-full rounded-full px-4 text-[13px] font-medium disabled:opacity-70"
-                    : "button-primary min-h-12 w-full rounded-full px-5 text-[14px] font-medium disabled:opacity-70"
+                    ? "button-primary min-h-11 rounded-full px-4 text-[13px] font-medium disabled:opacity-70"
+                    : "button-primary min-h-12 rounded-full px-5 text-[14px] font-medium disabled:opacity-70"
                 }
                 disabled={pending}
                 type="submit"

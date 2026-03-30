@@ -109,8 +109,11 @@ export function buildArtistRoomShareDraft(params: {
 
 export function buildLinkRoomShareDraft(params: {
   url: string;
+  note?: string | null;
 }) {
   const url = params.url.trim().slice(0, 320);
+  const note =
+    typeof params.note === "string" ? normalizeRoomShareNote(params.note) : "";
 
   if (!url) {
     throw new Error("Paste a link first.");
@@ -122,7 +125,7 @@ export function buildLinkRoomShareDraft(params: {
 
   return {
     kind: "link" as const,
-    note: null,
+    note: note || null,
     subtitle: "Shared context link",
     title: buildRoomShareUrlLabel(url),
     url,

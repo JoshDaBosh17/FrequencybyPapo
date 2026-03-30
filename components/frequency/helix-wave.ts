@@ -14,6 +14,17 @@ export type VerticalWaveConfig = {
   edgeTaper?: number;
 };
 
+export type HorizontalWaveConfig = {
+  centerY: number;
+  leftX: number;
+  rightX: number;
+  amplitude: number;
+  cycles: number;
+  sampleCount: number;
+  phaseOffset?: number;
+  edgeTaper?: number;
+};
+
 export type VerticalWaveMotionOptions = {
   phaseSpeed?: number;
   phaseDrift?: number;
@@ -289,4 +300,50 @@ export function buildWaveCrossingProgresses(
   );
 
   return progressStops.filter((progress) => progress > startPadding && progress < endPadding);
+}
+
+export function getHorizontalWavePoint(
+  progress: number,
+  phase: number,
+  config: HorizontalWaveConfig,
+) {
+  const edgeTaper = config.edgeTaper ?? DEFAULT_EDGE_TAPER;
+  const amplitudeScale = getAmplitudeScale(progress, edgeTaper);
+  const theta = progress * Math.PI * 2 * config.cycles + phase;
+
+  return {
+    x: config.leftX + progress * (config.rightX - config.leftX),
+    y: config.centerY + Math.sin(theta) * config.amplitude * amplitudeScale,
+  } satisfies HelixPoint;
+}
+
+export function getHorizontalWavePairAtProgress(
+  progress: number,
+  config: HorizontalWaveConfig,
+) {
+  const phaseOffset = config.phaseOffset ?? DEFAULT_PHASE_OFFSET;
+  const pointA = getHorizontalWavePoint(progress, 0, config);
+  const pointB = getHorizontalWavePoint(progress, phaseOffset, config);
+  const upperPoint = pointA.y <= pointB.y ? pointA : pointB;
+  const lowerPoint = pointA.y <= pointB.y ? pointB : pointA;
+
+  return {
+    lowerPoint,
+    pointA,
+    pointB,
+    upperPoint,
+  };
+}
+
+export function buildHorizontalWavePath(
+  phase: number,
+  config: HorizontalWaveConfig,
+) {
+  const sampleCount = Math.max(config.sampleCount, 2);
+  const points = Array.from({ length: sampleCount }, (_, index) => {
+    const progress = index / (sampleCount - 1);
+    return getHorizontalWavePoint(progress, phase, config);
+  });
+
+  return buildSmoothPath(points);
 }

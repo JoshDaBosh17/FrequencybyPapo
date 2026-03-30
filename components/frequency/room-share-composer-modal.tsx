@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { ArrowUpRight, Globe2, Lock, Music4, X } from "lucide-react";
+import { Globe2, Lock, Music4, X } from "lucide-react";
 
 import type { RoomShareItem } from "@/lib/types";
 import { GlassCard } from "./glass-card";
@@ -10,15 +10,13 @@ import { RoomShareComposer } from "./room-share-composer";
 export function RoomShareComposerModal({
   open,
   onClose,
-  channel,
-  channelVibe,
+  roomName,
   visibility,
   onSubmit,
 }: {
   open: boolean;
   onClose: () => void;
-  channel: string;
-  channelVibe?: string | null;
+  roomName?: string | null;
   visibility: "personal" | "public";
   onSubmit: (draft: {
     kind: RoomShareItem["kind"];
@@ -75,15 +73,11 @@ export function RoomShareComposerModal({
                   Add music
                 </p>
                 <h2 className="text-[24px] font-semibold tracking-[-0.05em] text-[var(--text)] sm:text-[28px]">
-                  Share into #{channel}
+                  {roomName ? `Add to ${roomName}` : "Add to this room"}
                 </h2>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <span className="surface-pill inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-[var(--text-soft)]">
-                  <Music4 className="size-3.5" />
-                  #{channel}
-                </span>
                 <span className="surface-pill inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-[var(--text-soft)]">
                   {visibility === "public" ? (
                     <Globe2 className="size-3.5" />
@@ -92,17 +86,17 @@ export function RoomShareComposerModal({
                   )}
                   {visibility === "public" ? "Shareable room" : "Private room"}
                 </span>
-                {channelVibe ? (
+                {roomName ? (
                   <span className="surface-pill inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-[var(--text-soft)]">
-                    <ArrowUpRight className="size-3.5" />
-                    {channelVibe}
+                    <Music4 className="size-3.5" />
+                    {roomName}
                   </span>
                 ) : null}
               </div>
             </div>
 
             <button
-              aria-label={`Close add music for #${channel}`}
+              aria-label={roomName ? `Close add music for ${roomName}` : "Close add music"}
               className="button-secondary inline-flex min-h-10 min-w-10 items-center justify-center rounded-full px-3"
               onClick={onClose}
               type="button"
@@ -112,8 +106,8 @@ export function RoomShareComposerModal({
           </div>
 
           <RoomShareComposer
-            channel={channel}
-            channelVibe={channelVibe}
+            channel="room"
+            channelVibe={roomName}
             onSubmit={onSubmit}
             showHeader={false}
             visibility={visibility}

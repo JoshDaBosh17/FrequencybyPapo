@@ -38,6 +38,8 @@ import type {
   RoomShareItem,
   RoomShareKind,
   RoomSharePlatformLinks,
+  RoomShareReactionKind,
+  RoomShareReactions,
   UserProfile,
 } from "@/lib/types";
 import { firebaseApp } from "./client";
@@ -202,6 +204,7 @@ function normalizeRoomShareItem(existing: Partial<RoomShareItem>): RoomShareItem
     subtitle: typeof existing.subtitle === "string" ? existing.subtitle : null,
     url: typeof existing.url === "string" ? existing.url : null,
     note: typeof existing.note === "string" ? existing.note : null,
+    sourcePlatform: normalizeRoomShareSourcePlatform(existing.sourcePlatform),
     links: normalizeRoomSharePlatformLinks(existing.links),
     addedBy: typeof existing.addedBy === "string" ? existing.addedBy : "",
     addedByName: typeof existing.addedByName === "string" ? existing.addedByName : null,
@@ -226,8 +229,18 @@ function normalizeRoomShareItem(existing: Partial<RoomShareItem>): RoomShareItem
         ? existing.enrichmentSource
         : null,
     enrichedAt: existing.enrichedAt ?? null,
+    reactions: normalizeRoomShareReactions(existing.reactions),
     createdAt: existing.createdAt ?? null,
   };
+}
+
+function normalizeRoomShareSourcePlatform(value: unknown) {
+  return value === "spotify" ||
+    value === "appleMusic" ||
+    value === "soundcloud" ||
+    value === "youtube"
+    ? value
+    : null;
 }
 
 function normalizeRoomSharePlatformLinks(value: unknown): RoomSharePlatformLinks {
@@ -236,6 +249,7 @@ function normalizeRoomSharePlatformLinks(value: unknown): RoomSharePlatformLinks
       appleMusic: null,
       soundcloud: null,
       spotify: null,
+      youtube: null,
     };
   }
 
@@ -245,7 +259,35 @@ function normalizeRoomSharePlatformLinks(value: unknown): RoomSharePlatformLinks
     appleMusic: typeof links.appleMusic === "string" ? links.appleMusic : null,
     soundcloud: typeof links.soundcloud === "string" ? links.soundcloud : null,
     spotify: typeof links.spotify === "string" ? links.spotify : null,
+    youtube: typeof links.youtube === "string" ? links.youtube : null,
   };
+}
+
+function normalizeRoomShareReactions(value: unknown): RoomShareReactions {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  return (["fire", "love", "headphones"] as const).reduce<RoomShareReactions>(
+    (map, reaction) => {
+      const entries = (value as Record<string, unknown>)[reaction];
+
+      if (!Array.isArray(entries)) {
+        return map;
+      }
+
+      map[reaction] = Array.from(
+        new Set(
+          entries
+            .filter((entry): entry is string => typeof entry === "string")
+            .map((entry) => entry.trim())
+            .filter(Boolean),
+        ),
+      );
+      return map;
+    },
+    {},
+  );
 }
 
 function normalizeTasteSummary(existing: Partial<UserProfile>["tasteSummary"]) {
@@ -822,10 +864,12 @@ export async function addRoomShareItem({
       subtitle: normalizedSubtitle,
       url: normalizedUrl,
       note: normalizedNote,
+      sourcePlatform: null,
       links: {
         appleMusic: null,
         soundcloud: null,
         spotify: null,
+        youtube: null,
       },
       addedBy,
       addedByName: addedByName?.trim() || null,
@@ -836,6 +880,7 @@ export async function addRoomShareItem({
       enrichmentError: null,
       enrichmentSource: null,
       enrichedAt: null,
+      reactions: {},
       createdAt: serverTimestamp(),
     },
     undefined,
@@ -911,23 +956,33 @@ export async function addRoomShareItem({
     } else {
       const payload = (await response.json()) as {
         result?: {
+          kind?: RoomShareKind;
           links?: RoomSharePlatformLinks | null;
           primaryGenre?: string | null;
+          sourcePlatform?: string | null;
           source?: "lastfm_track" | "lastfm_artist" | null;
           status?: string;
+          title?: string;
+          track?: string | null;
+          artist?: string | null;
         };
       };
 
       console.log("[frequency][room-share-enrichment]", {
         event: "room_share_item_enrichment_completed",
+        resolvedArtist: payload.result?.artist ?? null,
+        resolvedKind: payload.result?.kind ?? null,
+        resolvedTitle: payload.result?.track ?? payload.result?.title ?? null,
         roomId,
         itemId: shareRef.id,
         hasAppleMusic: Boolean(payload.result?.links?.appleMusic),
         primaryGenre: payload.result?.primaryGenre ?? null,
         hasSoundCloud: Boolean(payload.result?.links?.soundcloud),
         source: payload.result?.source ?? null,
+        sourcePlatform: payload.result?.sourcePlatform ?? null,
         status: payload.result?.status ?? null,
         hasSpotify: Boolean(payload.result?.links?.spotify),
+        hasYouTube: Boolean(payload.result?.links?.youtube),
       });
     }
   } catch (error) {
@@ -956,6 +1011,57 @@ export async function addRoomShareItem({
   }
 
   return shareRef.id;
+}
+
+export async function toggleRoomShareReaction({
+  roomId,
+  itemId,
+  reaction,
+  uid,
+}: {
+  roomId: string;
+  itemId: string;
+  reaction: RoomShareReactionKind;
+  uid: string;
+}) {
+  const normalizedUid = uid.trim();
+
+  if (!normalizedUid) {
+    throw new Error("Sign in again before reacting.");
+  }
+
+  const itemRef = doc(db, "rooms", roomId, "items", itemId);
+  const itemSnapshot = await getDoc(itemRef);
+
+  if (!itemSnapshot.exists()) {
+    throw new Error("This song could not be found.");
+  }
+
+  const item = normalizeRoomShareItem(itemSnapshot.data() as Partial<RoomShareItem>);
+  const nextReactions = {
+    ...item.reactions,
+  } satisfies RoomShareReactions;
+  const currentUsers = nextReactions[reaction] ?? [];
+
+  nextReactions[reaction] = currentUsers.includes(normalizedUid)
+    ? currentUsers.filter((entry) => entry !== normalizedUid)
+    : [...currentUsers, normalizedUid];
+
+  if (!nextReactions[reaction]?.length) {
+    delete nextReactions[reaction];
+  }
+
+  await setClientDocument(
+    itemRef,
+    {
+      reactions: nextReactions,
+    },
+    { merge: true },
+    {
+      triggerReason: "toggle_room_share_reaction",
+      userId: normalizedUid,
+    },
+  );
 }
 
 export async function removeRoomShareItem({
@@ -1073,4 +1179,54 @@ export function observeRoomShareItems(
       callback([]);
     },
   );
+}
+
+export function observeRoomShareItemsByRoomIds(
+  roomIds: string[],
+  callback: (items: RoomShareItem[]) => void,
+) {
+  const orderedRoomIds = Array.from(
+    new Set(
+      roomIds
+        .map((roomId) => roomId.trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (!orderedRoomIds.length) {
+    callback([]);
+    return () => {};
+  }
+
+  const itemsByRoomId = new Map<string, RoomShareItem[]>();
+
+  const emit = () => {
+    const mergedItems = sortRoomShareItemsByRecency(
+      Array.from(itemsByRoomId.values()).flat(),
+    );
+    callback(mergedItems);
+  };
+
+  const unsubscribers = orderedRoomIds.map((roomId) =>
+    onSnapshot(
+      collection(db, "rooms", roomId, "items"),
+      (snapshot) => {
+        itemsByRoomId.set(
+          roomId,
+          snapshot.docs.map((itemDoc) =>
+            normalizeRoomShareItem(itemDoc.data() as Partial<RoomShareItem>),
+          ),
+        );
+        emit();
+      },
+      () => {
+        itemsByRoomId.delete(roomId);
+        emit();
+      },
+    ),
+  );
+
+  return () => {
+    unsubscribers.forEach((unsubscribe) => unsubscribe());
+  };
 }

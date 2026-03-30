@@ -212,11 +212,27 @@ export type GuidedRecommendationIntent = {
 
 export type RoomShareKind = "song" | "artist" | "link";
 
+export type RoomShareSourcePlatform =
+  | "spotify"
+  | "appleMusic"
+  | "soundcloud"
+  | "youtube";
+
 export type RoomSharePlatformLinks = {
   spotify?: string | null;
   appleMusic?: string | null;
   soundcloud?: string | null;
+  youtube?: string | null;
 };
+
+export type RoomShareReactionKind =
+  | "fire"
+  | "love"
+  | "headphones";
+
+export type RoomShareReactions = Partial<
+  Record<RoomShareReactionKind, string[]>
+>;
 
 export type RoomShareItem = {
   id: string;
@@ -227,6 +243,7 @@ export type RoomShareItem = {
   subtitle?: string | null;
   url?: string | null;
   note?: string | null;
+  sourcePlatform?: RoomShareSourcePlatform | null;
   links?: RoomSharePlatformLinks | null;
   addedBy: string;
   addedByName?: string | null;
@@ -237,6 +254,7 @@ export type RoomShareItem = {
   enrichmentError?: string | null;
   enrichmentSource?: "lastfm_track" | "lastfm_artist" | null;
   enrichedAt?: unknown;
+  reactions?: RoomShareReactions | null;
   createdAt: unknown;
 };
 

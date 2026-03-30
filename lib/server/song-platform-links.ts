@@ -1,4 +1,7 @@
-import type { RoomSharePlatformLinks } from "@/lib/types"
+import type {
+  RoomSharePlatformLinks,
+  RoomShareSourcePlatform,
+} from "@/lib/types"
 
 import { normalizeComparableText } from "./artists"
 import { resolveCanonicalSongEntry } from "./song-correction"
@@ -61,6 +64,12 @@ type SongSearchMetadata = {
   title: string
 }
 
+type ExtractedMusicLinkMetadata = {
+  sourcePlatform: RoomShareSourcePlatform | null
+  artist: string | null
+  title: string | null
+}
+
 let spotifyTokenCache:
   | {
       accessToken: string
@@ -80,7 +89,38 @@ function emptyPlatformLinks(): RoomSharePlatformLinks {
     appleMusic: null,
     soundcloud: null,
     spotify: null,
+    youtube: null,
   }
+}
+
+function normalizeDisplayText(value: string | null | undefined) {
+  return value?.trim().replace(/\s+/g, " ") || null
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function stripArtistPrefixFromTitle(title: string, artist: string | null) {
+  if (!artist) {
+    return title
+  }
+
+  return title.replace(new RegExp(`^${escapeRegExp(artist)}\\s*(?:-|–|—|:|\\|)\\s*`, "i"), "").trim()
+}
+
+function sanitizeResolvedTitle(value: string | null | undefined) {
+  const normalized = normalizeDisplayText(value)
+
+  if (!normalized) {
+    return null
+  }
+
+  return normalized
+    .replace(/\((official(?:\s+(?:audio|video))?|audio|video|lyrics?|visualizer|topic|hd|4k|remaster(?:ed)?|live)\)/gi, " ")
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || null
 }
 
 function normalizeSongTitle(value: string) {
@@ -136,6 +176,60 @@ function cleanSoundCloudHandle(value: string) {
     .replace(/\b(official|music|records|recordings|audio|soundcloud|topic)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function parseUrl(url: string | null | undefined) {
+  if (!url) {
+    return null
+  }
+
+  try {
+    return new URL(url)
+  } catch {
+    return null
+  }
+}
+
+function isYouTubeHost(hostname: string) {
+  return (
+    hostname === "youtu.be" ||
+    hostname === "youtube.com" ||
+    hostname === "www.youtube.com" ||
+    hostname === "m.youtube.com" ||
+    hostname.endsWith(".youtube.com")
+  )
+}
+
+export function detectMusicSourcePlatform(url: string | null | undefined): RoomShareSourcePlatform | null {
+  const parsedUrl = parseUrl(url)
+
+  if (!parsedUrl) {
+    return null
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase()
+
+  if (hostname === "open.spotify.com" || hostname.endsWith(".spotify.com")) {
+    return "spotify"
+  }
+
+  if (
+    hostname === "music.apple.com" ||
+    hostname === "itunes.apple.com" ||
+    hostname.endsWith(".apple.com")
+  ) {
+    return "appleMusic"
+  }
+
+  if (hostname === "soundcloud.com" || hostname.endsWith(".soundcloud.com")) {
+    return "soundcloud"
+  }
+
+  if (isYouTubeHost(hostname)) {
+    return "youtube"
+  }
+
+  return null
 }
 
 function levenshteinDistance(left: string, right: string) {
@@ -463,44 +557,292 @@ async function resolveSongSearchMetadata(params: {
   }
 }
 
-function extractDirectPlatformLinks(url: string | null | undefined): RoomSharePlatformLinks {
-  if (!url) {
+export function extractDirectPlatformLinks(
+  url: string | null | undefined,
+): RoomSharePlatformLinks {
+  const sourcePlatform = detectMusicSourcePlatform(url)
+
+  if (!url || !sourcePlatform) {
     return emptyPlatformLinks()
   }
+
+  return {
+    ...emptyPlatformLinks(),
+    [sourcePlatform]: url,
+  }
+}
+
+function extractSpotifyTrackId(url: string) {
+  const parsedUrl = parseUrl(url)
+
+  if (!parsedUrl) {
+    return null
+  }
+
+  const segments = parsedUrl.pathname.split("/").filter(Boolean)
+  const trackIndex = segments.findIndex((segment) => segment === "track")
+  const trackId = trackIndex >= 0 ? segments[trackIndex + 1] : null
+
+  return trackId?.trim() || null
+}
+
+function extractAppleMusicTrackId(url: string) {
+  const parsedUrl = parseUrl(url)
+
+  if (!parsedUrl) {
+    return null
+  }
+
+  const queryTrackId = parsedUrl.searchParams.get("i")?.trim()
+
+  if (queryTrackId && /^\d+$/.test(queryTrackId)) {
+    return queryTrackId
+  }
+
+  const idMatch = parsedUrl.pathname.match(/(?:^|\/)id(\d+)(?:[/?]|$)/i)
+  if (idMatch?.[1]) {
+    return idMatch[1]
+  }
+
+  const segments = parsedUrl.pathname.split("/").filter(Boolean)
+  const numericSegment = [...segments].reverse().find((segment) => /^\d+$/.test(segment))
+
+  return numericSegment?.trim() || null
+}
+
+async function fetchSpotifyTrackMetadata(url: string) {
+  const trackId = extractSpotifyTrackId(url)
+
+  if (!trackId) {
+    return null
+  }
+
+  const token = await getSpotifyAccessToken()
+
+  if (!token) {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        "User-Agent": "Mozilla/5.0 Frequency/1.0",
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`Spotify track page request failed with ${response.status}`)
+    }
+
+    const html = await response.text()
+    const titleMatch = html.match(/<title>([^<]+)<\/title>/i)
+    const pageTitle = normalizeDisplayText(
+      decodeHtmlEntities(titleMatch?.[1] ?? "")
+        .replace(/\s+\|\s+Spotify\s*$/i, "")
+        .trim(),
+    )
+    const parsedTitle = pageTitle?.match(/^(.*?)\s+-\s+song(?: and lyrics)? by\s+(.*?)$/i)
+
+    return {
+      artist: normalizeDisplayText(parsedTitle?.[2]),
+      title: sanitizeResolvedTitle(parsedTitle?.[1] ?? pageTitle),
+      url,
+    }
+  }
+
+  const response = await fetch(`https://api.spotify.com/v1/tracks/${encodeURIComponent(trackId)}?market=US`, {
+    cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Spotify track metadata request failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as {
+    artists?: Array<{ name?: string }>
+    external_urls?: { spotify?: string }
+    name?: string
+  }
+
+  const artist = (payload.artists ?? [])
+    .map((candidate) => candidate.name?.trim())
+    .filter(Boolean)
+    .join(", ")
+
+  return {
+    artist: normalizeDisplayText(artist),
+    title: sanitizeResolvedTitle(payload.name),
+    url: normalizeDisplayText(payload.external_urls?.spotify) ?? url,
+  }
+}
+
+async function fetchAppleMusicTrackMetadata(url: string) {
+  const trackId = extractAppleMusicTrackId(url)
+
+  if (!trackId) {
+    return null
+  }
+
+  const response = await fetch(
+    `https://itunes.apple.com/lookup?id=${encodeURIComponent(trackId)}&entity=song&country=US`,
+    {
+      cache: "no-store",
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(`Apple Music track metadata request failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as {
+    results?: Array<{
+      artistName?: string
+      trackName?: string
+      trackViewUrl?: string
+    }>
+  }
+
+  const trackResult = (payload.results ?? []).find(
+    (candidate) => candidate.trackName?.trim() && candidate.artistName?.trim(),
+  )
+
+  if (!trackResult) {
+    return null
+  }
+
+  return {
+    artist: normalizeDisplayText(trackResult.artistName),
+    title: sanitizeResolvedTitle(trackResult.trackName),
+    url: normalizeDisplayText(trackResult.trackViewUrl) ?? url,
+  }
+}
+
+async function fetchSoundCloudTrackMetadata(url: string) {
+  const response = await fetch(
+    `https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(url)}`,
+    {
+      cache: "no-store",
+      headers: {
+        "User-Agent": "Mozilla/5.0 Frequency/1.0",
+      },
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(`SoundCloud oEmbed failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as {
+    author_name?: string
+    title?: string
+  }
+
+  const parsedTitle = parseArtistTrackFromLabel(payload.title ?? "")
+  const artist =
+    normalizeDisplayText(parsedTitle?.artist) ??
+    normalizeDisplayText(payload.author_name)
+  const title = sanitizeResolvedTitle(
+    parsedTitle?.track ?? stripArtistPrefixFromTitle(payload.title ?? "", artist),
+  )
+
+  return {
+    artist,
+    title,
+    url,
+  }
+}
+
+async function fetchYouTubeTrackMetadata(url: string) {
+  const response = await fetch(
+    `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
+    { cache: "no-store" },
+  )
+
+  if (!response.ok) {
+    throw new Error(`YouTube oEmbed failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as {
+    author_name?: string
+    title?: string
+  }
+
+  const parsedTitle = parseArtistTrackFromLabel(payload.title ?? "")
+  const authorName = normalizeDisplayText(payload.author_name)
+  const cleanedAuthorName =
+    authorName?.replace(/\s+-\s+topic$/i, "").replace(/\s+/g, " ").trim() || null
+  const artist = normalizeDisplayText(parsedTitle?.artist) ?? cleanedAuthorName
+  const title = sanitizeResolvedTitle(
+    parsedTitle?.track ?? stripArtistPrefixFromTitle(payload.title ?? "", artist),
+  )
+
+  return {
+    artist,
+    title,
+    url,
+  }
+}
+
+export async function extractMusicLinkMetadata(
+  url: string,
+): Promise<ExtractedMusicLinkMetadata> {
+  const sourcePlatform = detectMusicSourcePlatform(url)
+
+  if (!sourcePlatform) {
+    logSongPlatformEvent("music_link_metadata_skipped", {
+      reason: "unsupported_platform",
+      url,
+    })
+    return {
+      artist: null,
+      sourcePlatform: null,
+      title: null,
+    }
+  }
+
+  logSongPlatformEvent("music_link_metadata_started", {
+    sourcePlatform,
+    url,
+  })
 
   try {
-    const parsedUrl = new URL(url)
-    const hostname = parsedUrl.hostname.toLowerCase()
+    const metadata =
+      sourcePlatform === "spotify"
+        ? await fetchSpotifyTrackMetadata(url)
+        : sourcePlatform === "appleMusic"
+          ? await fetchAppleMusicTrackMetadata(url)
+          : sourcePlatform === "soundcloud"
+            ? await fetchSoundCloudTrackMetadata(url)
+            : await fetchYouTubeTrackMetadata(url)
 
-    if (hostname === "open.spotify.com" || hostname.endsWith(".spotify.com")) {
-      return {
-        ...emptyPlatformLinks(),
-        spotify: url,
-      }
-    }
+    const artist = normalizeDisplayText(metadata?.artist)
+    const title = sanitizeResolvedTitle(metadata?.title)
 
-    if (
-      hostname === "music.apple.com" ||
-      hostname === "itunes.apple.com" ||
-      hostname.endsWith(".apple.com")
-    ) {
-      return {
-        ...emptyPlatformLinks(),
-        appleMusic: url,
-      }
-    }
+    logSongPlatformEvent("music_link_metadata_completed", {
+      sourcePlatform,
+      artist,
+      title,
+      url,
+    })
 
-    if ((hostname === "soundcloud.com" || hostname.endsWith(".soundcloud.com")) && !parsedUrl.pathname.startsWith("/search")) {
-      return {
-        ...emptyPlatformLinks(),
-        soundcloud: url,
-      }
+    return {
+      artist,
+      sourcePlatform,
+      title,
     }
-  } catch {
-    return emptyPlatformLinks()
+  } catch (error) {
+    logSongPlatformEvent("music_link_metadata_failed", {
+      sourcePlatform,
+      url,
+      error: error instanceof Error ? error.message : "Music link metadata lookup failed.",
+    })
+
+    return {
+      artist: null,
+      sourcePlatform,
+      title: null,
+    }
   }
-
-  return emptyPlatformLinks()
 }
 
 async function getSpotifyAccessToken() {
@@ -743,6 +1085,7 @@ export async function resolveSongMetadataAndLinks(params: {
 }) {
   const metadata = await resolveSongSearchMetadata(params)
   const directLinks = extractDirectPlatformLinks(params.url)
+  const youtube = directLinks.youtube
 
   logSongPlatformEvent("platform_link_resolution_started", {
     artist: metadata.artist,
@@ -788,6 +1131,7 @@ export async function resolveSongMetadataAndLinks(params: {
     appleMusic,
     soundcloud,
     spotify,
+    youtube,
   } satisfies RoomSharePlatformLinks
 
   logSongPlatformEvent("platform_link_resolution_completed", {
@@ -795,6 +1139,7 @@ export async function resolveSongMetadataAndLinks(params: {
     hasAppleMusic: Boolean(links.appleMusic),
     hasSoundCloud: Boolean(links.soundcloud),
     hasSpotify: Boolean(links.spotify),
+    hasYouTube: Boolean(links.youtube),
     metadataSource: metadata.metadataSource,
     title: metadata.title,
   })
