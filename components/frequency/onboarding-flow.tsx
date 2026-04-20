@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { triggerUserEnrichment } from "@/lib/client/enrichment";
 import { useAuth } from "@/components/providers/auth-provider";
 import { IS_CLIENT_TEST_MODE } from "@/lib/env/client";
+import { getSafeAppRedirectPath } from "@/lib/frequency/app-redirect";
 import { resolveArtistEntry } from "@/lib/frequency/artist-entry";
 import { logArtistCorrectionEvent } from "@/lib/frequency/artist-correction-log";
 import { completeOnboarding } from "@/lib/firebase/firestore";
@@ -16,7 +17,7 @@ import { StatPill } from "./stat-pill";
 
 const steps = ["Welcome", "Artists", "Finish"] as const;
 
-export function OnboardingFlow() {
+export function OnboardingFlow({ redirectPath }: { redirectPath?: string | null }) {
   const router = useRouter();
   const { signIn, user, profile } = useAuth();
   const [step, setStep] = useState(0);
@@ -122,7 +123,7 @@ export function OnboardingFlow() {
         });
       }
       if (mountedRef.current) {
-        router.push("/home");
+        router.push(getSafeAppRedirectPath(redirectPath));
       }
     } catch {
       if (mountedRef.current) {

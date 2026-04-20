@@ -12,7 +12,7 @@ import { GlassCard } from "./glass-card";
 const titles: Record<string, string> = {
   "/home": "Home",
   "/rooms": "Rooms",
-  "/compare": "Compare",
+  "/compare": "Friends",
   "/profile": "Profile",
 };
 
@@ -28,6 +28,7 @@ export function ProtectedAppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { dataError, profile, signOut } = useAuth();
   const showTopCard = pathname === "/profile";
+  const showGlobalPlayer = pathname !== "/home";
 
   const displayName = profile?.displayName ?? "Frequency listener";
   const initials = getInitials(displayName);
@@ -82,7 +83,7 @@ export function ProtectedAppShell({ children }: { children: React.ReactNode }) {
             <p className="text-[14px] leading-6 text-[var(--text-soft)]">{dataError}</p>
           </GlassCard>
         ) : null}
-        <GlobalPlayerLayer />
+        {showGlobalPlayer ? <GlobalPlayerLayer /> : null}
         {children}
       </div>
       <AppBottomNav />

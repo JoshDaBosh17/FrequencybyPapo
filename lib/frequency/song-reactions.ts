@@ -6,7 +6,7 @@ import type {
 export const SONG_REACTION_OPTIONS = [
   { id: "fire", emoji: "🔥", label: "Fire" },
   { id: "love", emoji: "❤️", label: "Love" },
-  { id: "headphones", emoji: "🎧", label: "Listening" },
+  { id: "headphones", emoji: "🐐", label: "GOAT" },
 ] satisfies Array<{
   id: RoomShareReactionKind;
   emoji: string;

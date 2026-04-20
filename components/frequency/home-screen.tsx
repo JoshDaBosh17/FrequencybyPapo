@@ -3,44 +3,40 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
-import {
-  toGlobalPlayerTrack,
-  useGlobalPlayer,
-} from "@/components/providers/global-player-provider";
 import { triggerUserEnrichment } from "@/lib/client/enrichment";
 import { buildHomeGreeting } from "@/lib/frequency";
 import { getGenreColor, withAlpha } from "@/lib/frequency/genre-colors";
+import { isOnboardingComplete } from "@/lib/frequency/onboarding";
+import type { RoomShareSubmitDraft } from "@/lib/frequency/room-share";
 import {
-  createGuidedRecommendationIntent,
-  getCorrelatedGenreSeedOptions,
-  getDefaultGuidedRecommendationIntent,
-  getRecommendedArtistSeedOptions,
-  getRecommendedGenreSeedOptions,
-} from "@/lib/frequency/recommendation-intent";
-import {
+  buildPersonalSongActivityItems,
   buildSongActivityItems,
+  type SongActivityItem,
 } from "@/lib/frequency/song-activity";
 import { hasGeneratedTasteSummary } from "@/lib/frequency/taste-summary";
-import { logRecommendationFlowEvent } from "@/lib/frequency/recommendation-flow-log";
-import { logPlaybackEvent } from "@/lib/frequency/playback-source";
 import {
-  addRoomShareItem,
+  addPersonalSongItem,
   observeJoinedRooms,
+  observePersonalSongItems,
   observeRoomShareItemsByRoomIds,
   observeUserProfilesByIds,
+  triggerPersonalSongEnrichment,
+  triggerRoomShareEnrichment,
   toggleRoomShareReaction,
+  updateRoomShareItem,
 } from "@/lib/firebase/firestore";
 import type {
   FrequencyRoom,
-  HomeSuggestion,
+  PersonalSongItem,
   RoomShareItem,
+  RoomSharePlatformLinks,
   RoomShareReactionKind,
   UserProfile,
 } from "@/lib/types";
-import { useMountedRef } from "@/lib/use-mounted-ref";
-import { CatchAVibePlayer } from "./catch-a-vibe-player";
 import { CreateRoomDialog } from "./create-room-dialog";
+import { EditUploadModal } from "./edit-upload-modal";
 import { FavoriteArtistsDialog } from "./favorite-artists-dialog";
+import { HomeCollectionModal, HomeCollectionSection } from "./home-collection-section";
 import { HomeAddMusicModal } from "./home-add-music-modal";
 import { HomeRecentRooms } from "./home-recent-rooms";
 import { HomeYouMightLike } from "./home-you-might-like";
@@ -48,31 +44,128 @@ import { ListenOnModal, type ListenableSongItem } from "./listen-on-modal";
 import { SongFrequencyLane } from "./song-frequency-lane";
 import { TimelineAddMusicButton } from "./timeline-add-music-button";
 
+function normalizeCollectionKeyPart(value: string | null | undefined) {
+  return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
+}
+
+function normalizeTimestampMs(value: unknown) {
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  if (value && typeof value === "object" && "seconds" in value) {
+    return ((value as { seconds?: number }).seconds ?? 0) * 1000;
+  }
+
+  return 0;
+}
+
+function hasListeningLinks(links?: RoomSharePlatformLinks | null) {
+  return Boolean(links?.spotify || links?.appleMusic || links?.soundcloud || links?.youtube);
+}
+
+function hasResolvableSongMetadata(item: {
+  kind: string;
+  resolvedArtist?: string | null;
+  resolvedTrack?: string | null;
+  subtitle?: string | null;
+  title?: string | null;
+}) {
+  return Boolean(
+    item.kind === "song" &&
+      (item.resolvedArtist || item.subtitle) &&
+      (item.resolvedTrack || item.title),
+  );
+}
+
+function isStaleLoadingUpload(item: { createdAt: unknown; enrichmentStatus?: string | null }) {
+  if (item.enrichmentStatus !== "loading") {
+    return false;
+  }
+
+  const createdAtMs = normalizeTimestampMs(item.createdAt);
+  return Boolean(createdAtMs && Date.now() - createdAtMs > 45_000);
+}
+
+function shouldBackfillSongSupport(item: {
+  artworkUrl?: string | null;
+  createdAt: unknown;
+  enrichmentStatus?: string | null;
+  kind: string;
+  links?: RoomSharePlatformLinks | null;
+  resolvedArtist?: string | null;
+  resolvedTrack?: string | null;
+  subtitle?: string | null;
+  title?: string | null;
+}) {
+  if (!hasResolvableSongMetadata(item)) {
+    return false;
+  }
+
+  if (item.enrichmentStatus === "loading" && !isStaleLoadingUpload(item)) {
+    return false;
+  }
+
+  return !item.artworkUrl || !hasListeningLinks(item.links);
+}
+
+function getCollectionDedupeKey(item: SongActivityItem) {
+  const platformLink =
+    item.links?.spotify ??
+    item.links?.appleMusic ??
+    item.links?.soundcloud ??
+    item.links?.youtube ??
+    item.rawItem.url;
+
+  if (platformLink) {
+    return `link:${normalizeCollectionKeyPart(platformLink)}`;
+  }
+
+  return `song:${normalizeCollectionKeyPart(item.artist)}:${normalizeCollectionKeyPart(item.title)}`;
+}
+
+function buildHomeCollectionItems(items: SongActivityItem[]) {
+  const deduped = new Map<string, SongActivityItem>();
+
+  for (const item of items) {
+    if (item.rawItem.kind !== "song") {
+      continue;
+    }
+
+    const key = getCollectionDedupeKey(item);
+    const existing = deduped.get(key);
+
+    if (!existing || normalizeTimestampMs(item.createdAt) > normalizeTimestampMs(existing.createdAt)) {
+      deduped.set(key, item);
+    }
+  }
+
+  return Array.from(deduped.values()).sort(
+    (left, right) => normalizeTimestampMs(right.createdAt) - normalizeTimestampMs(left.createdAt),
+  );
+}
+
 export function HomeScreen() {
   const { user, profile } = useAuth();
-  const { currentTrack, setTrack } = useGlobalPlayer();
-  const resolvedPlayback =
-    currentTrack ??
-    (profile?.homeSuggestion ? toGlobalPlayerTrack(profile.homeSuggestion, "recommendation") : null);
-  const artistOptions = getRecommendedArtistSeedOptions(profile);
-  const genreOptions = getRecommendedGenreSeedOptions(profile?.genreProfile ?? []);
+  const profileOnboardingComplete = isOnboardingComplete(profile);
   const [rooms, setRooms] = useState<FrequencyRoom[]>([]);
   const [roomShareItems, setRoomShareItems] = useState<RoomShareItem[]>([]);
+  const [personalSaveItems, setPersonalSaveItems] = useState<PersonalSongItem[]>([]);
   const [socialProfiles, setSocialProfiles] = useState<UserProfile[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [collectionOpen, setCollectionOpen] = useState(false);
   const [editArtistsOpen, setEditArtistsOpen] = useState(false);
   const [homeAddMusicOpen, setHomeAddMusicOpen] = useState(false);
+  const [homeTimelineError, setHomeTimelineError] = useState<string | null>(null);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [pendingReactionKey, setPendingReactionKey] = useState<string | null>(null);
-  const [retryPending, setRetryPending] = useState(false);
-  const [selectedSong, setSelectedSong] = useState<ListenableSongItem | null>(null);
-  const [guidedIntent, setGuidedIntent] = useState(() => getDefaultGuidedRecommendationIntent(profile));
-  const mountedRef = useMountedRef();
+  const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
+  const [selectedStaticSong, setSelectedStaticSong] = useState<ListenableSongItem | null>(null);
+  const [songPendingEdit, setSongPendingEdit] = useState<SongActivityItem | null>(null);
+  const currentUserId = user?.uid ?? profile?.uid ?? null;
   const tasteSummaryHydrationKeyRef = useRef<string | null>(null);
-  const { correlatedGenres, helperCopy: genreHelperCopy } = getCorrelatedGenreSeedOptions(
-    profile,
-    guidedIntent.artistSeed,
-    genreOptions,
-  );
+  const artworkHydrationKeysRef = useRef<Set<string>>(new Set());
   const socialUserIds = useMemo(
     () =>
       Array.from(
@@ -101,12 +194,75 @@ export function HomeScreen() {
   }, [rooms]);
 
   useEffect(() => {
+    if (!profile?.uid) {
+      setPersonalSaveItems([]);
+      return;
+    }
+
+    return observePersonalSongItems(profile.uid, setPersonalSaveItems);
+  }, [profile?.uid]);
+
+  useEffect(() => {
     return observeUserProfilesByIds(socialUserIds, setSocialProfiles);
   }, [socialUserIds]);
 
   useEffect(() => {
-    setGuidedIntent(getDefaultGuidedRecommendationIntent(profile));
-  }, [profile]);
+    const pendingEnrichmentItems = roomShareItems
+      .filter((item) => shouldBackfillSongSupport(item))
+      .slice(0, 4);
+
+    for (const item of pendingEnrichmentItems) {
+      const key = `room:${item.roomId}:${item.id}`;
+
+      if (artworkHydrationKeysRef.current.has(key)) {
+        continue;
+      }
+
+      artworkHydrationKeysRef.current.add(key);
+      void triggerRoomShareEnrichment({
+        roomId: item.roomId,
+        itemId: item.id,
+      }).catch((error) => {
+        console.error("[frequency][timeline-song-support]", {
+          event: "home_timeline_song_support_backfill_failed",
+          roomId: item.roomId,
+          itemId: item.id,
+          error: error instanceof Error ? error.message : "Timeline song support backfill failed.",
+        });
+      });
+    }
+  }, [roomShareItems]);
+
+  useEffect(() => {
+    if (!profile?.uid) {
+      return;
+    }
+
+    const pendingEnrichmentItems = personalSaveItems
+      .filter((item) => shouldBackfillSongSupport(item))
+      .slice(0, 4);
+
+    for (const item of pendingEnrichmentItems) {
+      const key = `personal:${profile.uid}:${item.id}`;
+
+      if (artworkHydrationKeysRef.current.has(key)) {
+        continue;
+      }
+
+      artworkHydrationKeysRef.current.add(key);
+      void triggerPersonalSongEnrichment({
+        userId: profile.uid,
+        itemId: item.id,
+      }).catch((error) => {
+        console.error("[frequency][personal-song-enrichment]", {
+          event: "home_personal_song_support_backfill_failed",
+          userId: profile.uid,
+          itemId: item.id,
+          error: error instanceof Error ? error.message : "Personal song support backfill failed.",
+        });
+      });
+    }
+  }, [personalSaveItems, profile?.uid]);
 
   useEffect(() => {
     if (!user || !profile) {
@@ -157,31 +313,50 @@ export function HomeScreen() {
     user,
   ]);
 
-  useEffect(() => {
-    if (profile?.recommendationEmptyStateReason !== "artists_updated" || resolvedPlayback) {
-      return;
-    }
-
-    logRecommendationFlowEvent("recommendation_autoload_skipped_after_save_artists", {
-      surface: "home",
-      uid: profile.uid,
-    });
-  }, [profile?.recommendationEmptyStateReason, profile?.uid, resolvedPlayback]);
-
   const socialFeedItems = useMemo(
     () =>
       buildSongActivityItems({
-        currentUserId: user?.uid ?? profile?.uid ?? null,
+        currentUserId,
         items: roomShareItems,
         rooms,
         uploaderIds: socialUserIds,
         uploaderProfiles: socialProfiles,
       }),
-    [profile?.uid, roomShareItems, rooms, socialProfiles, socialUserIds, user?.uid],
+    [currentUserId, roomShareItems, rooms, socialProfiles, socialUserIds],
+  );
+  const personalUploadItems = useMemo(
+    () =>
+      buildPersonalSongActivityItems({
+        currentUserId,
+        items: personalSaveItems,
+        profile,
+      }),
+    [currentUserId, personalSaveItems, profile],
+  );
+  const groupCollectionItems = useMemo(
+    () =>
+      buildSongActivityItems({
+        currentUserId,
+        items: roomShareItems,
+        rooms,
+        uploaderProfiles: socialProfiles,
+      }),
+    [currentUserId, roomShareItems, rooms, socialProfiles],
+  );
+  const collectionItems = useMemo(
+    () => buildHomeCollectionItems([...personalUploadItems, ...groupCollectionItems]),
+    [groupCollectionItems, personalUploadItems],
   );
   const latestTimelineAccent = useMemo(
-    () => getGenreColor(socialFeedItems[0]?.primaryGenre ?? "frequency"),
+    () => getGenreColor(socialFeedItems[0]?.visualAccentKey ?? "frequency"),
     [socialFeedItems],
+  );
+  const selectedSong = useMemo(
+    () =>
+      selectedSongId
+        ? socialFeedItems.find((item) => item.id === selectedSongId) ?? null
+        : selectedStaticSong,
+    [selectedSongId, selectedStaticSong, socialFeedItems],
   );
   const recentRecommendationArtists = useMemo(
     () =>
@@ -211,83 +386,73 @@ export function HomeScreen() {
     [socialFeedItems],
   );
 
-  async function handleResolveGuidedPick() {
-    if (!user) {
-      return;
+  async function handleAddMusicFromHome(draft: RoomShareSubmitDraft) {
+    if (!currentUserId) {
+      throw new Error("Sign in again before saving.");
     }
 
-    if (profile?.recommendationEmptyStateReason === "artists_updated") {
-      logRecommendationFlowEvent("guided_pick_confirmed_after_empty_state", {
-        surface: "home",
-        uid: user.uid,
-        intentKey: guidedIntent.intentKey,
-      });
-    }
-
-    setRetryPending(true);
-    try {
-      const response = (await triggerUserEnrichment(user.uid, {
-        resolveRecommendation: true,
-        recommendationIntent: guidedIntent,
-      })) as {
-        result?: {
-          homeSuggestion?: HomeSuggestion | null;
-        };
-      };
-
-      if (response.result?.homeSuggestion) {
-        setTrack(toGlobalPlayerTrack(response.result.homeSuggestion, "home"), {
-          autoplay: true,
-          minimized: true,
-        });
-      }
-    } catch (error) {
-      console.error("[frequency][home-catch-a-vibe]", {
-        event: "guided_pick_failed",
-        error: error instanceof Error ? error.message : "Guided pick failed.",
-        uid: user.uid,
-      });
-    } finally {
-      if (mountedRef.current) {
-        setRetryPending(false);
-      }
-    }
-  }
-
-  async function handleAddMusicFromHome(params: {
-    roomId: string;
-    channel: string;
-    draft: {
-      kind: "song" | "artist" | "link";
-      title: string;
-      subtitle?: string | null;
-      url?: string | null;
-      note?: string | null;
-    };
-  }) {
-    if (!user && !profile?.uid) {
-      throw new Error("Sign in again before sharing.");
-    }
-
-    await addRoomShareItem({
-      roomId: params.roomId,
-      channel: params.channel,
-      kind: params.draft.kind,
-      title: params.draft.title,
-      subtitle: params.draft.subtitle,
-      url: params.draft.url,
-      note: params.draft.note,
-      addedBy: user?.uid ?? profile?.uid ?? "",
-      addedByName: profile?.displayName ?? user?.displayName ?? null,
+    await addPersonalSongItem({
+      artworkUrl: draft.artworkUrl,
+      kind: draft.kind,
+      links: draft.links,
+      note: draft.note,
+      resolvedArtist: draft.resolvedArtist,
+      resolvedTrack: draft.resolvedTrack,
+      sourcePlatform: draft.sourcePlatform,
+      subtitle: draft.subtitle,
+      title: draft.title,
+      url: draft.url,
+      userId: currentUserId,
     });
   }
 
+  async function handleEditTimelineUpload(draft: RoomShareSubmitDraft) {
+    if (!songPendingEdit || !currentUserId) {
+      throw new Error("Sign in again before editing this song.");
+    }
+
+    setHomeTimelineError(null);
+    setEditingItemId(songPendingEdit.id);
+
+    try {
+      await updateRoomShareItem({
+        artworkUrl: draft.artworkUrl,
+        itemId: songPendingEdit.id,
+        kind: draft.kind,
+        links: draft.links,
+        note: draft.note,
+        resolvedArtist: draft.resolvedArtist,
+        resolvedTrack: draft.resolvedTrack,
+        roomId: songPendingEdit.roomId,
+        sourcePlatform: draft.sourcePlatform,
+        subtitle: draft.subtitle,
+        title: draft.title,
+        updatedBy: currentUserId,
+        url: draft.url,
+      });
+      setSongPendingEdit(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "That song could not be updated.";
+      setHomeTimelineError(message);
+      console.error("[frequency][home-timeline]", {
+        event: "home_timeline_song_update_failed",
+        itemId: songPendingEdit.id,
+        roomId: songPendingEdit.roomId,
+        error: message,
+      });
+      throw error;
+    } finally {
+      setEditingItemId((current) =>
+        current === songPendingEdit.id ? null : current,
+      );
+    }
+  }
+
   async function handleToggleReaction(
-    item: (typeof socialFeedItems)[number],
+    item: SongActivityItem,
     reaction: RoomShareReactionKind,
   ) {
-    const currentUserId = user?.uid ?? profile?.uid ?? null;
-
     if (!currentUserId) {
       return;
     }
@@ -316,40 +481,8 @@ export function HomeScreen() {
     }
   }
 
-  function handlePlayResolvedPlayback() {
-    if (currentTrack) {
-      setTrack(currentTrack, {
-        autoplay: true,
-        minimized: true,
-      });
-      logPlaybackEvent("play_reused_cached_source", {
-        source: "home_catch_a_vibe",
-        artist: currentTrack.artist,
-        title: currentTrack.title,
-        videoId: currentTrack.videoId,
-      });
-      return;
-    }
-
-    if (!profile?.homeSuggestion) {
-      return;
-    }
-
-    const suggestionTrack = toGlobalPlayerTrack(profile.homeSuggestion, "home");
-    setTrack(suggestionTrack, {
-      autoplay: true,
-      minimized: true,
-    });
-    logPlaybackEvent("play_reused_cached_source", {
-      source: "home_catch_a_vibe",
-      artist: suggestionTrack.artist,
-      title: suggestionTrack.title,
-      videoId: suggestionTrack.videoId,
-    });
-  }
-
   return (
-    <div className="space-y-8 sm:space-y-10">
+    <div className="page-atmosphere space-y-10 sm:space-y-12">
       <div className="space-y-3 px-1 sm:space-y-4">
         <p className="text-[clamp(2.25rem,5.6vw,3.625rem)] font-semibold leading-[0.96] tracking-[-0.055em] text-[var(--text)]">
           Frequency
@@ -359,21 +492,21 @@ export function HomeScreen() {
         </p>
       </div>
 
-      <section className="section-haze-strong relative isolate overflow-hidden rounded-[36px] border border-[rgba(255,255,255,0.06)] px-5 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_42px_rgba(0,0,0,0.16)] sm:px-7 sm:py-8 lg:px-8 lg:py-10">
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+      <section className="relative isolate overflow-visible rounded-[36px] bg-[#030406] px-5 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.02),0_18px_42px_rgba(0,0,0,0.22)] sm:overflow-hidden sm:px-7 sm:py-8 lg:px-8 lg:py-10">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 inset-y-4 -z-10">
           <div
-            className="absolute left-[-6%] top-12 h-40 w-40 rounded-full blur-[72px] sm:h-52 sm:w-52"
+            className="absolute left-[-6%] top-10 h-40 w-40 rounded-full blur-[72px] sm:h-52 sm:w-52"
             style={{
-              background: `radial-gradient(circle, ${withAlpha(latestTimelineAccent, 0.14)}, transparent 72%)`,
+              background: `radial-gradient(circle, ${withAlpha(latestTimelineAccent, 0.14)}, transparent 100%)`,
             }}
           />
           <div
             className="absolute right-[-4%] top-24 h-44 w-44 rounded-full blur-[80px] sm:h-56 sm:w-56"
             style={{
-              background: `radial-gradient(circle, ${withAlpha(latestTimelineAccent, 0.1)}, transparent 76%)`,
+              background: `radial-gradient(circle, ${withAlpha(latestTimelineAccent, 0.1)}, transparent 100%)`,
             }}
           />
-          <div className="absolute inset-x-[12%] top-[36%] h-44 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.05),transparent_72%)] blur-[88px]" />
+          <div className="absolute inset-x-[12%] top-[34%] h-44 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.045),transparent_72%)] blur-[88px]" />
         </div>
 
         <div className="relative space-y-6 sm:space-y-7">
@@ -383,23 +516,34 @@ export function HomeScreen() {
             </p>
           </div>
 
+          {homeTimelineError ? (
+            <p className="text-[12px] leading-5 text-[#d7a0a0]">{homeTimelineError}</p>
+          ) : null}
+
           <SongFrequencyLane
-            className="-mx-1 sm:mx-0"
-            emptyBody="Add music from Home or drop songs into a room to start the social lane."
-            emptyTitle="No shared songs yet"
+            className="mx-0"
+            emptyBody="Click/Tap on add music."
             endLabel={null}
             items={socialFeedItems}
-            onSelectItem={(item) => setSelectedSong(item)}
+            canEditItem={(item) => item.rawItem.addedBy === currentUserId}
+            onEditItem={(item) => {
+              setHomeTimelineError(null);
+              setSongPendingEdit(item);
+            }}
+            onSelectItem={(item) => {
+              setSelectedSongId(item.id);
+              setSelectedStaticSong(null);
+            }}
             onToggleReaction={(item, reaction) => {
               void handleToggleReaction(item, reaction);
             }}
             pendingReactionKey={pendingReactionKey}
-            reactionUserId={user?.uid ?? profile?.uid ?? null}
+            reactionUserId={currentUserId}
             showReactions
             startLabel={null}
           />
 
-          <div className="pt-2 sm:pt-3">
+          <div className="pt-1 sm:pt-1.5">
             <TimelineAddMusicButton
               accentColor={latestTimelineAccent}
               onClick={() => setHomeAddMusicOpen(true)}
@@ -408,11 +552,23 @@ export function HomeScreen() {
         </div>
       </section>
 
+      <HomeCollectionSection
+        items={collectionItems}
+        onExpand={() => setCollectionOpen(true)}
+        onSelectItem={(item) => {
+          setSelectedSongId(null);
+          setSelectedStaticSong(item);
+        }}
+      />
+
       <HomeYouMightLike
         favoriteArtists={profile?.favoriteArtists ?? []}
         genreProfile={profile?.genreProfile ?? []}
         onEditArtists={() => setEditArtistsOpen(true)}
-        onSelectRecommendation={(item) => setSelectedSong(item)}
+        onSelectRecommendation={(item) => {
+          setSelectedSongId(null);
+          setSelectedStaticSong(item);
+        }}
         recentArtists={recentRecommendationArtists}
         recentGenres={recentRecommendationGenres}
         recentSongs={recentRecommendationSongs}
@@ -421,51 +577,48 @@ export function HomeScreen() {
 
       <HomeRecentRooms onCreateRoom={() => setCreateOpen(true)} rooms={rooms} />
 
-      <CatchAVibePlayer
-        artistOptions={artistOptions}
-        correlatedGenreOptions={correlatedGenres}
-        genreHelperCopy={genreHelperCopy}
-        genreOptions={genreOptions}
-        intent={guidedIntent}
-        onGenerate={handleResolveGuidedPick}
-        onIntentChange={(nextIntent) =>
-          setGuidedIntent(createGuidedRecommendationIntent(nextIntent))
-        }
-        onOpenArtists={() => setEditArtistsOpen(true)}
-        onPlay={handlePlayResolvedPlayback}
-        pending={retryPending}
-        playback={
-          resolvedPlayback
-            ? {
-                artist: resolvedPlayback.artist,
-                thumbnail: resolvedPlayback.thumbnail,
-                title: resolvedPlayback.title,
-              }
-            : null
-        }
-        recommendationError={profile?.recommendationStatus === "error" ? profile.recommendationError : null}
-      />
-
       <CreateRoomDialog onOpenChange={setCreateOpen} open={createOpen} />
+      <HomeCollectionModal
+        items={collectionItems}
+        onClose={() => setCollectionOpen(false)}
+        onSelectItem={(item) => {
+          setSelectedSongId(null);
+          setSelectedStaticSong(item);
+        }}
+        open={collectionOpen}
+      />
       {homeAddMusicOpen ? (
         <HomeAddMusicModal
           onClose={() => setHomeAddMusicOpen(false)}
-          onOpenCreateRoom={() => setCreateOpen(true)}
           onSubmit={handleAddMusicFromHome}
           open={homeAddMusicOpen}
-          rooms={rooms}
         />
       ) : null}
+      <EditUploadModal
+        item={songPendingEdit}
+        onClose={() => {
+          if (!editingItemId) {
+            setSongPendingEdit(null);
+          }
+        }}
+        onSubmit={handleEditTimelineUpload}
+      />
       {user && profile ? (
         <FavoriteArtistsDialog
           initialArtists={profile.favoriteArtists}
-          onboardingComplete={profile.onboardingComplete}
+          onboardingComplete={profileOnboardingComplete}
           onClose={() => setEditArtistsOpen(false)}
           open={editArtistsOpen}
           uid={user.uid}
         />
       ) : null}
-      <ListenOnModal item={selectedSong} onClose={() => setSelectedSong(null)} />
+      <ListenOnModal
+        item={selectedSong}
+        onClose={() => {
+          setSelectedSongId(null);
+          setSelectedStaticSong(null);
+        }}
+      />
     </div>
   );
 }

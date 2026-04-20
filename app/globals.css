@@ -38,16 +38,20 @@
 }
 
 html {
-  background:
-    radial-gradient(circle at top left, rgba(233, 135, 143, 0.14), transparent 24%),
-    radial-gradient(circle at top right, rgba(130, 187, 156, 0.12), transparent 22%),
-    radial-gradient(circle at bottom center, rgba(139, 185, 216, 0.08), transparent 26%),
-    linear-gradient(180deg, #090b11 0%, #06080d 48%, #04060a 100%);
+  min-height: 100%;
+  background: #020304;
 }
 
 body {
   min-height: 100vh;
-  background: transparent;
+  background:
+    radial-gradient(circle at 10% -8%, rgba(255, 255, 255, 0.07), transparent 28rem),
+    radial-gradient(circle at 92% 6%, rgba(255, 255, 255, 0.045), transparent 30rem),
+    radial-gradient(circle at 52% 62%, rgba(255, 255, 255, 0.025), transparent 34rem),
+    linear-gradient(180deg, #080a0e 0%, #05070a 38rem, #020304 100%);
+  background-color: #020304;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
   color: var(--text);
   font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "SF Pro Display", "Segoe UI", sans-serif;
@@ -63,6 +67,72 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+.purpose-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+.purpose-slider:focus {
+  outline: none;
+}
+
+.purpose-slider::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1));
+}
+
+.purpose-slider::-moz-range-track {
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1));
+}
+
+.purpose-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: radial-gradient(
+    circle at 32% 30%,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(255, 255, 255, 0.86) 18%,
+    var(--purpose-slider-accent) 68%
+  );
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.32);
+}
+
+.purpose-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: radial-gradient(
+    circle at 32% 30%,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(255, 255, 255, 0.86) 18%,
+    var(--purpose-slider-accent) 68%
+  );
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.32);
+}
+
+.music-dna-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  scroll-snap-type: x mandatory;
+}
+
+.music-dna-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 ::selection {
@@ -105,17 +175,64 @@ textarea {
 
 .section-haze {
   background:
-    radial-gradient(circle at top left, rgba(233, 135, 143, 0.08), transparent 30%),
-    linear-gradient(180deg, rgba(18, 22, 32, 0.34), rgba(11, 14, 20, 0.16));
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.035), transparent 32%),
+    linear-gradient(180deg, rgba(18, 22, 32, 0.28), rgba(7, 9, 13, 0.14));
   backdrop-filter: blur(16px);
 }
 
 .section-haze-strong {
   background:
-    radial-gradient(circle at top left, rgba(233, 135, 143, 0.1), transparent 34%),
-    radial-gradient(circle at bottom right, rgba(139, 185, 216, 0.08), transparent 32%),
-    linear-gradient(180deg, rgba(20, 24, 35, 0.46), rgba(11, 13, 20, 0.22));
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.045), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.024), transparent 32%),
+    linear-gradient(180deg, rgba(20, 24, 35, 0.4), rgba(7, 9, 13, 0.2));
   backdrop-filter: blur(20px);
+}
+
+.page-atmosphere {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+}
+
+.ambient-section {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.028), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.018), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 32, 0.14), rgba(7, 9, 13, 0.04));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.ambient-section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 18%);
+  opacity: 0.45;
+}
+
+.ambient-section-strong {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.04), transparent 34%),
+    radial-gradient(circle at 82% 18%, rgba(255, 255, 255, 0.024), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.02), transparent 34%),
+    linear-gradient(180deg, rgba(20, 24, 35, 0.2), rgba(7, 9, 13, 0.06));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.ambient-section-strong::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 18%);
+  opacity: 0.52;
 }
 
 .section-divider {
@@ -177,6 +294,35 @@ textarea {
 
 .modal-scrim {
   background: rgba(5, 7, 11, 0.64);
+}
+
+.modal-viewport {
+  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-right: max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  padding-left: max(1rem, env(safe-area-inset-left));
+  overscroll-behavior: none;
+}
+
+.modal-panel {
+  max-height: min(90vh, calc(100vh - 2rem));
+}
+
+@supports (height: 100dvh) {
+  .modal-panel {
+    max-height: min(90dvh, calc(100dvh - 2rem));
+  }
+}
+
+.modal-body {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+html[data-modal-open="true"] .app-bottom-nav {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(100% + 1.5rem));
 }
 
 ::placeholder {
@@ -344,4 +490,19 @@ textarea {
 .frequency-lane-flow {
   animation: frequency-helix-flow 5.4s linear infinite;
   stroke-dasharray: 58 168;
+}
+
+@keyframes frequency-timeline-art-stream {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+
+  50% {
+    transform: translate3d(calc(var(--stream-distance, 0px) * -0.5), var(--stream-float, -4px), 0)
+      rotate(var(--stream-tilt, -0.4deg)) scale(1.018);
+  }
+
+  100% {
+    transform: translate3d(calc(var(--stream-distance, 0px) * -1), 0, 0) rotate(0deg) scale(1);
+  }
 }

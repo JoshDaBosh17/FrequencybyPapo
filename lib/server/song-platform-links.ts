@@ -27,6 +27,8 @@ const TITLE_NOISE_TEST_PATTERN =
   /\b(official|audio|video|lyrics?|visualizer|topic|remaster(?:ed)?|live|hq|hd|4k)\b/i
 const ALT_VERSION_PATTERN =
   /\b(remix|edit|flip|bootleg|rework|mashup|sped up|slowed|nightcore|radio edit|mix)\b/i
+const ARTIST_SPLIT_PATTERN =
+  /\s*(?:,|&|\bx\b|\b×\b|\band\b|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b)\s*/i
 const SOUNDCLOUD_RESULT_PATTERN = /<li><h2><a href="(\/[^"]+)">(.*?)<\/a><\/h2><\/li>/g
 const SOUNDCLOUD_RESERVED_PATHS = new Set([
   "discover",
@@ -52,8 +54,14 @@ type OpenAIResponse = {
 
 type PlatformCandidate = {
   artist: string
+  artworkUrl?: string | null
   popularity?: number
   title: string
+  url: string
+}
+
+type ResolvedPlatformLink = {
+  artworkUrl?: string | null
   url: string
 }
 
@@ -66,6 +74,7 @@ type SongSearchMetadata = {
 
 type ExtractedMusicLinkMetadata = {
   sourcePlatform: RoomShareSourcePlatform | null
+  artworkUrl: string | null
   artist: string | null
   title: string | null
 }
@@ -93,8 +102,38 @@ function emptyPlatformLinks(): RoomSharePlatformLinks {
   }
 }
 
+function mergePlatformLinks(...linkSets: Array<RoomSharePlatformLinks | null | undefined>) {
+  return linkSets.reduce<RoomSharePlatformLinks>((merged, linkSet) => {
+    if (!linkSet) {
+      return merged
+    }
+
+    return {
+      appleMusic: merged.appleMusic ?? linkSet.appleMusic ?? null,
+      soundcloud: merged.soundcloud ?? linkSet.soundcloud ?? null,
+      spotify: merged.spotify ?? linkSet.spotify ?? null,
+      youtube: merged.youtube ?? linkSet.youtube ?? null,
+    }
+  }, emptyPlatformLinks())
+}
+
 function normalizeDisplayText(value: string | null | undefined) {
   return value?.trim().replace(/\s+/g, " ") || null
+}
+
+function normalizeArtworkUrl(value: string | null | undefined) {
+  const normalized = normalizeDisplayText(value)
+
+  if (!normalized) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(normalized)
+    return /^https?:$/i.test(parsed.protocol) ? parsed.toString() : null
+  } catch {
+    return null
+  }
 }
 
 function escapeRegExp(value: string) {
@@ -125,6 +164,9 @@ function sanitizeResolvedTitle(value: string | null | undefined) {
 
 function normalizeSongTitle(value: string) {
   return normalizeComparableText(value)
+    .replace(/\((?:feat\.?|ft\.?|featuring)\s+[^)]+\)/gi, " ")
+    .replace(/\[(?:feat\.?|ft\.?|featuring)\s+[^\]]+\]/gi, " ")
+    .replace(/\b(?:feat\.?|ft\.?|featuring)\s+[a-z0-9&,'".\- ]+$/gi, " ")
     .replace(TITLE_NOISE_PATTERN, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -135,6 +177,60 @@ function normalizeArtist(value: string) {
     .replace(/\b(official|music|records|recordings|topic|channel)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function buildArtistVariants(value: string) {
+  const normalized = normalizeArtist(value)
+
+  if (!normalized) {
+    return []
+  }
+
+  const variants = new Set<string>([normalized])
+
+  for (const part of normalized.split(ARTIST_SPLIT_PATTERN)) {
+    const candidate = part.trim()
+
+    if (!candidate || candidate.length < 2) {
+      continue
+    }
+
+    variants.add(candidate)
+  }
+
+  return Array.from(variants)
+}
+
+function resolveArtistSimilarity(targetArtist: string, candidateArtist: string) {
+  const normalizedTargetArtist = normalizeArtist(targetArtist)
+  const normalizedCandidateArtist = normalizeArtist(candidateArtist)
+
+  if (!normalizedTargetArtist || !normalizedCandidateArtist) {
+    return 0
+  }
+
+  let bestScore = similarity(normalizedTargetArtist, normalizedCandidateArtist)
+  const targetVariants = buildArtistVariants(targetArtist)
+  const candidateVariants = buildArtistVariants(candidateArtist)
+
+  for (const targetVariant of targetVariants) {
+    for (const candidateVariant of candidateVariants) {
+      bestScore = Math.max(bestScore, similarity(targetVariant, candidateVariant))
+    }
+  }
+
+  if (normalizedCandidateArtist.includes(normalizedTargetArtist)) {
+    bestScore = Math.max(bestScore, 0.98)
+  }
+
+  if (
+    normalizedTargetArtist.includes(normalizedCandidateArtist) &&
+    normalizedCandidateArtist.length >= Math.max(4, Math.floor(normalizedTargetArtist.length * 0.55))
+  ) {
+    bestScore = Math.max(bestScore, 0.88)
+  }
+
+  return bestScore
 }
 
 function hasMetadataNoise(value: string) {
@@ -276,11 +372,9 @@ function candidateScore(params: {
   targetTitle: string
 }) {
   const normalizedTargetTitle = normalizeSongTitle(params.targetTitle)
-  const normalizedTargetArtist = normalizeArtist(params.targetArtist)
   const normalizedCandidateTitle = normalizeSongTitle(params.candidateTitle)
-  const normalizedCandidateArtist = normalizeArtist(params.candidateArtist)
   const titleSimilarity = similarity(normalizedTargetTitle, normalizedCandidateTitle)
-  const artistSimilarity = similarity(normalizedTargetArtist, normalizedCandidateArtist)
+  const artistSimilarity = resolveArtistSimilarity(params.targetArtist, params.candidateArtist)
   const popularityScore =
     typeof params.popularity === "number" ? Math.max(0, Math.min(1, params.popularity / 100)) : 0
   const alternateVersionPenalty =
@@ -642,6 +736,7 @@ async function fetchSpotifyTrackMetadata(url: string) {
 
     return {
       artist: normalizeDisplayText(parsedTitle?.[2]),
+      artworkUrl: null,
       title: sanitizeResolvedTitle(parsedTitle?.[1] ?? pageTitle),
       url,
     }
@@ -659,6 +754,9 @@ async function fetchSpotifyTrackMetadata(url: string) {
   }
 
   const payload = (await response.json()) as {
+    album?: {
+      images?: Array<{ url?: string }>
+    }
     artists?: Array<{ name?: string }>
     external_urls?: { spotify?: string }
     name?: string
@@ -671,6 +769,7 @@ async function fetchSpotifyTrackMetadata(url: string) {
 
   return {
     artist: normalizeDisplayText(artist),
+    artworkUrl: normalizeArtworkUrl(payload.album?.images?.[0]?.url),
     title: sanitizeResolvedTitle(payload.name),
     url: normalizeDisplayText(payload.external_urls?.spotify) ?? url,
   }
@@ -697,6 +796,8 @@ async function fetchAppleMusicTrackMetadata(url: string) {
   const payload = (await response.json()) as {
     results?: Array<{
       artistName?: string
+      artworkUrl100?: string
+      artworkUrl60?: string
       trackName?: string
       trackViewUrl?: string
     }>
@@ -712,6 +813,7 @@ async function fetchAppleMusicTrackMetadata(url: string) {
 
   return {
     artist: normalizeDisplayText(trackResult.artistName),
+    artworkUrl: normalizeArtworkUrl(trackResult.artworkUrl100 ?? trackResult.artworkUrl60),
     title: sanitizeResolvedTitle(trackResult.trackName),
     url: normalizeDisplayText(trackResult.trackViewUrl) ?? url,
   }
@@ -734,6 +836,7 @@ async function fetchSoundCloudTrackMetadata(url: string) {
 
   const payload = (await response.json()) as {
     author_name?: string
+    thumbnail_url?: string
     title?: string
   }
 
@@ -747,6 +850,7 @@ async function fetchSoundCloudTrackMetadata(url: string) {
 
   return {
     artist,
+    artworkUrl: normalizeArtworkUrl(payload.thumbnail_url),
     title,
     url,
   }
@@ -764,6 +868,7 @@ async function fetchYouTubeTrackMetadata(url: string) {
 
   const payload = (await response.json()) as {
     author_name?: string
+    thumbnail_url?: string
     title?: string
   }
 
@@ -778,6 +883,7 @@ async function fetchYouTubeTrackMetadata(url: string) {
 
   return {
     artist,
+    artworkUrl: normalizeArtworkUrl(payload.thumbnail_url),
     title,
     url,
   }
@@ -795,6 +901,7 @@ export async function extractMusicLinkMetadata(
     })
     return {
       artist: null,
+      artworkUrl: null,
       sourcePlatform: null,
       title: null,
     }
@@ -816,17 +923,20 @@ export async function extractMusicLinkMetadata(
             : await fetchYouTubeTrackMetadata(url)
 
     const artist = normalizeDisplayText(metadata?.artist)
+    const artworkUrl = normalizeArtworkUrl(metadata?.artworkUrl)
     const title = sanitizeResolvedTitle(metadata?.title)
 
     logSongPlatformEvent("music_link_metadata_completed", {
       sourcePlatform,
       artist,
+      artworkUrl,
       title,
       url,
     })
 
     return {
       artist,
+      artworkUrl,
       sourcePlatform,
       title,
     }
@@ -839,6 +949,7 @@ export async function extractMusicLinkMetadata(
 
     return {
       artist: null,
+      artworkUrl: null,
       sourcePlatform,
       title: null,
     }
@@ -923,7 +1034,7 @@ function pickBestCandidate(params: {
     .find((candidate) => candidate.score >= params.minScore)
 }
 
-async function searchSpotifyLink(metadata: SongSearchMetadata) {
+async function searchSpotifyLink(metadata: SongSearchMetadata): Promise<ResolvedPlatformLink | null> {
   const token = await getSpotifyAccessToken()
 
   if (!token) {
@@ -954,6 +1065,9 @@ async function searchSpotifyLink(metadata: SongSearchMetadata) {
     const payload = (await response.json()) as {
       tracks?: {
         items?: Array<{
+          album?: {
+            images?: Array<{ url?: string }>
+          }
           artists?: Array<{ name?: string }>
           external_urls?: { spotify?: string }
           name?: string
@@ -972,6 +1086,7 @@ async function searchSpotifyLink(metadata: SongSearchMetadata) {
           .map((artist) => artist.name?.trim())
           .filter(Boolean)
           .join(", "),
+        artworkUrl: normalizeArtworkUrl(item.album?.images?.[0]?.url),
         popularity: item.popularity,
         title: item.name,
         url: item.external_urls.spotify,
@@ -986,10 +1101,17 @@ async function searchSpotifyLink(metadata: SongSearchMetadata) {
     targetTitle: metadata.title,
   })
 
-  return bestCandidate?.url ?? null
+  if (!bestCandidate?.url) {
+    return null
+  }
+
+  return {
+    artworkUrl: bestCandidate.artworkUrl ?? null,
+    url: bestCandidate.url,
+  }
 }
 
-async function searchAppleMusicLink(metadata: SongSearchMetadata) {
+async function searchAppleMusicLink(metadata: SongSearchMetadata): Promise<ResolvedPlatformLink | null> {
   const response = await fetch(
     `https://itunes.apple.com/search?media=music&entity=song&country=US&limit=${SEARCH_LIMIT}&term=${encodeURIComponent(metadata.searchQuery)}`,
     {
@@ -1004,6 +1126,8 @@ async function searchAppleMusicLink(metadata: SongSearchMetadata) {
   const payload = (await response.json()) as {
     results?: Array<{
       artistName?: string
+      artworkUrl100?: string
+      artworkUrl60?: string
       trackName?: string
       trackViewUrl?: string
     }>
@@ -1013,6 +1137,7 @@ async function searchAppleMusicLink(metadata: SongSearchMetadata) {
     candidates: (payload.results ?? [])
       .map((result) => ({
         artist: result.artistName?.trim() ?? "",
+        artworkUrl: normalizeArtworkUrl(result.artworkUrl100 ?? result.artworkUrl60),
         title: result.trackName?.trim() ?? "",
         url: result.trackViewUrl?.trim() ?? "",
       }))
@@ -1022,10 +1147,17 @@ async function searchAppleMusicLink(metadata: SongSearchMetadata) {
     targetTitle: metadata.title,
   })
 
-  return bestCandidate?.url ?? null
+  if (!bestCandidate?.url) {
+    return null
+  }
+
+  return {
+    artworkUrl: bestCandidate.artworkUrl ?? null,
+    url: bestCandidate.url,
+  }
 }
 
-async function searchSoundCloudLink(metadata: SongSearchMetadata) {
+async function searchSoundCloudLink(metadata: SongSearchMetadata): Promise<ResolvedPlatformLink | null> {
   const response = await fetch(
     `https://soundcloud.com/search/sounds?q=${encodeURIComponent(metadata.searchQuery)}`,
     {
@@ -1075,16 +1207,33 @@ async function searchSoundCloudLink(metadata: SongSearchMetadata) {
     targetTitle: metadata.title,
   })
 
-  return bestCandidate?.url ?? null
+  if (!bestCandidate?.url) {
+    return null
+  }
+
+  return {
+    artworkUrl: bestCandidate.artworkUrl ?? null,
+    url: bestCandidate.url,
+  }
 }
 
 export async function resolveSongMetadataAndLinks(params: {
   artist: string
+  existingLinks?: RoomSharePlatformLinks | null
   title: string
   url?: string | null
 }) {
   const metadata = await resolveSongSearchMetadata(params)
-  const directLinks = extractDirectPlatformLinks(params.url)
+  const directLinks = mergePlatformLinks(params.existingLinks, extractDirectPlatformLinks(params.url))
+  const directMetadata = params.url
+    ? await extractMusicLinkMetadata(params.url).catch((error) => {
+        logSongPlatformEvent("music_link_metadata_failed", {
+          error: error instanceof Error ? error.message : "Music link metadata lookup failed.",
+          url: params.url,
+        })
+        return null
+      })
+    : null
   const youtube = directLinks.youtube
 
   logSongPlatformEvent("platform_link_resolution_started", {
@@ -1096,7 +1245,10 @@ export async function resolveSongMetadataAndLinks(params: {
 
   const [spotify, appleMusic, soundcloud] = await Promise.all([
     directLinks.spotify
-      ? Promise.resolve(directLinks.spotify)
+      ? Promise.resolve({
+          artworkUrl: directMetadata?.sourcePlatform === "spotify" ? directMetadata.artworkUrl : null,
+          url: directLinks.spotify,
+        } satisfies ResolvedPlatformLink)
       : searchSpotifyLink(metadata).catch((error) => {
           logSongPlatformEvent("spotify_link_resolution_failed", {
             artist: metadata.artist,
@@ -1106,7 +1258,10 @@ export async function resolveSongMetadataAndLinks(params: {
           return null
         }),
     directLinks.appleMusic
-      ? Promise.resolve(directLinks.appleMusic)
+      ? Promise.resolve({
+          artworkUrl: directMetadata?.sourcePlatform === "appleMusic" ? directMetadata.artworkUrl : null,
+          url: directLinks.appleMusic,
+        } satisfies ResolvedPlatformLink)
       : searchAppleMusicLink(metadata).catch((error) => {
           logSongPlatformEvent("apple_music_link_resolution_failed", {
             artist: metadata.artist,
@@ -1116,7 +1271,10 @@ export async function resolveSongMetadataAndLinks(params: {
           return null
         }),
     directLinks.soundcloud
-      ? Promise.resolve(directLinks.soundcloud)
+      ? Promise.resolve({
+          artworkUrl: directMetadata?.sourcePlatform === "soundcloud" ? directMetadata.artworkUrl : null,
+          url: directLinks.soundcloud,
+        } satisfies ResolvedPlatformLink)
       : searchSoundCloudLink(metadata).catch((error) => {
           logSongPlatformEvent("soundcloud_link_resolution_failed", {
             artist: metadata.artist,
@@ -1128,14 +1286,21 @@ export async function resolveSongMetadataAndLinks(params: {
   ])
 
   const links = {
-    appleMusic,
-    soundcloud,
-    spotify,
+    appleMusic: appleMusic?.url ?? null,
+    soundcloud: soundcloud?.url ?? null,
+    spotify: spotify?.url ?? null,
     youtube,
   } satisfies RoomSharePlatformLinks
+  const artworkUrl =
+    directMetadata?.artworkUrl ??
+    spotify?.artworkUrl ??
+    appleMusic?.artworkUrl ??
+    soundcloud?.artworkUrl ??
+    null
 
   logSongPlatformEvent("platform_link_resolution_completed", {
     artist: metadata.artist,
+    artworkUrl,
     hasAppleMusic: Boolean(links.appleMusic),
     hasSoundCloud: Boolean(links.soundcloud),
     hasSpotify: Boolean(links.spotify),
@@ -1146,6 +1311,7 @@ export async function resolveSongMetadataAndLinks(params: {
 
   return {
     artist: metadata.artist,
+    artworkUrl,
     links,
     metadataSource: metadata.metadataSource,
     title: metadata.title,

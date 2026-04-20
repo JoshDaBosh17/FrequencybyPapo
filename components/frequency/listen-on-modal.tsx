@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
 import { X } from "lucide-react";
 
+import { IS_FREQUENCY_DEMO_MODE } from "@/lib/frequency/demo-mode";
 import type { RoomSharePlatformLinks } from "@/lib/types";
-import { GlassCard } from "./glass-card";
+import { ModalBody, ModalFrame } from "./modal-frame";
+import { useModalLock } from "./use-modal-lock";
 
-type ListenPlatform = "spotify" | "appleMusic" | "soundcloud";
+type ListenPlatform = "spotify" | "appleMusic" | "soundcloud" | "youtube";
 
 export type ListenableSongItem = {
   title: string;
@@ -16,6 +17,7 @@ export type ListenableSongItem = {
   links?: RoomSharePlatformLinks | null;
   contextLabel?: string | null;
   ageLabel?: string | null;
+  addedDateLabel?: string | null;
   uploadedBy?: {
     displayName: string;
   } | null;
@@ -25,6 +27,7 @@ const LISTEN_PLATFORM_ORDER = [
   "spotify",
   "appleMusic",
   "soundcloud",
+  "youtube",
 ] satisfies ListenPlatform[];
 
 function getPlatformLabel(platform: ListenPlatform) {
@@ -34,6 +37,10 @@ function getPlatformLabel(platform: ListenPlatform) {
 
   if (platform === "soundcloud") {
     return "SoundCloud";
+  }
+
+  if (platform === "youtube") {
+    return "YouTube";
   }
 
   return "Spotify";
@@ -57,6 +64,18 @@ function PlatformIcon({ platform }: { platform: ListenPlatform }) {
           d="M14.7 5.2v9.1a2.7 2.7 0 1 1-1.5-2.4V7.1l5.7-1.4v7.1a2.7 2.7 0 1 1-1.5-2.4V4.2z"
           fill="currentColor"
         />
+      </svg>
+    );
+  }
+
+  if (platform === "youtube") {
+    return (
+      <svg aria-hidden="true" className="size-4" viewBox="0 0 24 24">
+        <path
+          d="M20.3 7.7a2.6 2.6 0 0 0-1.8-1.8C16.9 5.5 12 5.5 12 5.5s-4.9 0-6.5.4A2.6 2.6 0 0 0 3.7 7.7 27 27 0 0 0 3.3 12c0 1.5.1 2.9.4 4.3a2.6 2.6 0 0 0 1.8 1.8c1.6.4 6.5.4 6.5.4s4.9 0 6.5-.4a2.6 2.6 0 0 0 1.8-1.8c.3-1.4.4-2.8.4-4.3s-.1-2.9-.4-4.3Z"
+          fill="currentColor"
+        />
+        <path d="m10 15.2 4.8-3.2L10 8.8v6.4Z" fill="rgba(5,7,11,0.94)" />
       </svg>
     );
   }
@@ -89,106 +108,88 @@ export function ListenOnModal({
 }) {
   const platformEntries = getPlatformEntries(item);
 
-  useEffect(() => {
-    if (!item) {
-      return;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [item, onClose]);
+  useModalLock({
+    onClose,
+    open: Boolean(item),
+  });
 
   if (!item) {
     return null;
   }
 
   return (
-    <div
-      className="modal-scrim fixed inset-0 z-50 flex items-center justify-center px-4 py-6 backdrop-blur-md"
-      onClick={onClose}
+    <ModalFrame
+      className={`max-w-lg ${
+        IS_FREQUENCY_DEMO_MODE
+          ? "border-white/12 bg-black shadow-[0_40px_120px_rgba(0,0,0,0.72)]"
+          : ""
+      }`}
+      closeOnBackdrop
+      onClose={onClose}
     >
-      <GlassCard
-        strong
-        className="w-full max-w-lg rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(11,13,20,0.98),rgba(6,8,13,0.98))] p-5 shadow-[0_36px_90px_rgba(0,0,0,0.48)] sm:p-6"
-      >
-        <div
-          className="space-y-5"
-          onClick={(event) => {
-            event.stopPropagation();
-          }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">
-                Listen on
+      <div className="shrink-0 border-b border-white/8 px-5 py-5 sm:px-6 sm:py-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">
+              Listen on
+            </p>
+            <div className="space-y-1">
+              <h2 className="text-[24px] font-semibold tracking-[-0.05em] text-[var(--text)]">
+                {item.title}
+              </h2>
+              <p className="text-[15px] text-[var(--text-soft)]">{item.artist}</p>
+              <p className="text-[12px] text-[var(--text-faint)]">
+                {item.uploadedBy?.displayName
+                  ? `Uploaded by ${item.uploadedBy.displayName}`
+                  : "Queued in Frequency"}
+                {item.contextLabel ? ` • ${item.contextLabel}` : ""}
+                {item.addedDateLabel ? ` • Added ${item.addedDateLabel}` : ""}
+                {item.ageLabel ? ` • ${item.ageLabel}` : ""}
               </p>
-              <div className="space-y-1">
-                <h2 className="text-[24px] font-semibold tracking-[-0.05em] text-[var(--text)]">
-                  {item.title}
-                </h2>
-                <p className="text-[15px] text-[var(--text-soft)]">{item.artist}</p>
-                <p className="text-[12px] text-[var(--text-faint)]">
-                  {item.uploadedBy?.displayName
-                    ? `Uploaded by ${item.uploadedBy.displayName}`
-                    : "Queued in Frequency"}
-                  {item.contextLabel ? ` • ${item.contextLabel}` : ""}
-                  {item.ageLabel ? ` • ${item.ageLabel}` : ""}
-                </p>
-              </div>
             </div>
-
-            <button
-              aria-label="Close listening options"
-              className="button-secondary inline-flex min-h-10 min-w-10 items-center justify-center rounded-full px-3"
-              onClick={onClose}
-              type="button"
-            >
-              <X className="size-4" />
-            </button>
           </div>
 
-          {platformEntries.length ? (
-            <div className="grid gap-3">
-              {platformEntries.map((entry) => (
-                <Link
-                  key={entry.platform}
-                  className="button-secondary inline-flex min-h-12 items-center justify-between rounded-[22px] px-4 text-sm font-medium"
-                  href={entry.url}
-                  onClick={onClose}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  <span className="inline-flex items-center gap-3">
-                    <PlatformIcon platform={entry.platform} />
-                    {getPlatformLabel(entry.platform)}
-                  </span>
-                  <span className="text-[var(--text-faint)]">Open</span>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[14px] leading-6 text-[var(--text-soft)]">
-              No listening links are ready for this song yet.
-            </p>
-          )}
-
-          {item.comment ? (
-            <p className="text-[13px] leading-6 text-[var(--text-soft)]">{item.comment}</p>
-          ) : null}
+          <button
+            aria-label="Close listening options"
+            className="button-secondary inline-flex min-h-10 min-w-10 items-center justify-center rounded-full px-3"
+            onClick={onClose}
+            type="button"
+          >
+            <X className="size-4" />
+          </button>
         </div>
-      </GlassCard>
-    </div>
+      </div>
+
+      <ModalBody className="space-y-5">
+        {platformEntries.length ? (
+          <div className="grid gap-3">
+            {platformEntries.map((entry) => (
+              <Link
+                key={entry.platform}
+                className="button-secondary inline-flex min-h-12 items-center justify-between rounded-[22px] px-4 text-sm font-medium"
+                href={entry.url}
+                onClick={onClose}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span className="inline-flex items-center gap-3">
+                  <PlatformIcon platform={entry.platform} />
+                  {getPlatformLabel(entry.platform)}
+                </span>
+                <span className="text-[var(--text-faint)]">Open</span>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[14px] leading-6 text-[var(--text-soft)]">
+            No listening links are ready for this song yet.
+          </p>
+        )}
+
+        {item.comment ? (
+          <p className="text-[13px] leading-6 text-[var(--text-soft)]">{item.comment}</p>
+        ) : null}
+      </ModalBody>
+    </ModalFrame>
   );
 }

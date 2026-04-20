@@ -819,12 +819,20 @@ export async function enrichUserTaste(
       })),
   );
   const favoriteArtistsSignature = buildFavoriteArtistsSignature(favoriteArtists);
+  const existingTasteSummary = user.tasteSummary
+    ? {
+        overview: user.tasteSummary.overview ?? null,
+        headline: user.tasteSummary.headline ?? null,
+        subheadline: user.tasteSummary.subheadline ?? null,
+        generatedAt: user.tasteSummary.generatedAt,
+      }
+    : null;
   logTasteEnrichmentEvent("enrichment_loaded_profile", {
     uid,
     favoriteArtistsCount: favoriteArtists.length,
     favoriteArtistsSignature,
-    existingTasteSummaryOverview: user.tasteSummary?.overview ?? null,
-    hasGeneratedTasteSummary: hasGeneratedTasteSummary(user.tasteSummary),
+    existingTasteSummaryOverview: existingTasteSummary?.overview ?? null,
+    hasGeneratedTasteSummary: hasGeneratedTasteSummary(existingTasteSummary),
   });
   const shouldResolveRecommendation = Boolean(
     options?.resolveRecommendation || options?.forceRecommendation || options?.recommendationIntent,
@@ -880,7 +888,7 @@ export async function enrichUserTaste(
         subheadline?: string | null;
         generatedAt?: unknown;
       }
-    | null = user.tasteSummary ?? null;
+    | null = existingTasteSummary;
   let homeSuggestion = null;
   let enrichmentStatus: "ready" | "error" = "ready";
   let enrichmentError: string | null = null;
@@ -916,14 +924,14 @@ export async function enrichUserTaste(
 
   const shouldRefreshTasteSummary =
     (user.favoriteArtistsSignature ?? null) !== favoriteArtistsSignature ||
-    !hasGeneratedTasteSummary(user.tasteSummary);
+    !hasGeneratedTasteSummary(existingTasteSummary);
 
   logTasteEnrichmentEvent("taste_summary_refresh_evaluated", {
     uid,
     shouldRefreshTasteSummary,
     favoriteArtistsChanged: (user.favoriteArtistsSignature ?? null) !== favoriteArtistsSignature,
-    hasGeneratedTasteSummary: hasGeneratedTasteSummary(user.tasteSummary),
-    existingTasteSummaryOverview: user.tasteSummary?.overview ?? null,
+    hasGeneratedTasteSummary: hasGeneratedTasteSummary(existingTasteSummary),
+    existingTasteSummaryOverview: existingTasteSummary?.overview ?? null,
     genreCount: genreProfile.length,
   });
 

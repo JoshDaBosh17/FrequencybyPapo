@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 
 import { triggerUserEnrichment } from "@/lib/client/enrichment";
 import { IS_CLIENT_TEST_MODE } from "@/lib/env/client";
@@ -10,7 +11,8 @@ import { logRecommendationFlowEvent } from "@/lib/frequency/recommendation-flow-
 import { saveFavoriteArtists } from "@/lib/firebase/firestore";
 import { useMountedRef } from "@/lib/use-mounted-ref";
 import { ArtistCorrectionModal } from "./artist-correction-modal";
-import { GlassCard } from "./glass-card";
+import { ModalBody, ModalFrame } from "./modal-frame";
+import { useModalLock } from "./use-modal-lock";
 
 export function FavoriteArtistsDialog({
   uid,
@@ -46,6 +48,11 @@ export function FavoriteArtistsDialog({
       setCorrection(null);
     }
   }, [initialArtists, open]);
+
+  useModalLock({
+    onClose,
+    open,
+  });
 
   if (!open) {
     return null;
@@ -144,9 +151,10 @@ export function FavoriteArtistsDialog({
   }
 
   return (
-    <div className="modal-scrim fixed inset-0 z-40 flex items-center justify-center px-4 py-8 backdrop-blur-sm">
-      <GlassCard strong className="w-full max-w-xl rounded-[32px] p-6 sm:p-7">
-        <div className="space-y-6">
+    <>
+      <ModalFrame className="max-w-xl" onClose={onClose}>
+      <div className="shrink-0 border-b border-white/8 px-5 py-5 sm:px-6 sm:py-6">
+        <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
             <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
               Favorite artists
@@ -159,69 +167,83 @@ export function FavoriteArtistsDialog({
             </p>
           </div>
 
-          <div className="flex gap-3">
-            <input
-              className="field-surface min-h-12 flex-1 rounded-full px-4 text-[15px]"
-              onChange={(event) => setInput(event.target.value)}
-              onChangeCapture={() => setInputError(null)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void addArtist();
-                }
-              }}
-              placeholder="Add an artist"
-              value={input}
-            />
-            <button
-              className="button-primary min-h-12 rounded-full px-5 text-[15px] font-medium"
-              onClick={() => void addArtist()}
-              type="button"
-            >
-              Add
-            </button>
-          </div>
-
-          {inputError ? <p className="text-[13px] text-[#aa5c5c]">{inputError}</p> : null}
-
-          <div className="flex flex-wrap gap-3">
-            {artists.length ? (
-              artists.map((artist) => (
-                <button
-                  key={artist}
-                  className="surface-pill rounded-full px-4 py-2 text-[14px] text-[var(--text-soft)]"
-                  onClick={() => setArtists((current) => current.filter((entry) => entry !== artist))}
-                  type="button"
-                >
-                  {artist} x
-                </button>
-              ))
-            ) : (
-              <p className="text-[14px] text-[var(--text-faint)]">Start with three favorites if you can.</p>
-            )}
-          </div>
-
-          {error ? <p className="text-[13px] text-[#aa5c5c]">{error}</p> : null}
-
-          <div className="flex flex-wrap gap-3">
-            <button
-              className="button-primary min-h-12 rounded-full px-5 text-[15px] font-medium disabled:opacity-70"
-              disabled={pending}
-              onClick={() => void handleSave()}
-              type="button"
-            >
-              {pending ? "Saving artists" : "Save artists"}
-            </button>
-            <button
-              className="button-secondary min-h-12 rounded-full px-5 text-[15px] font-medium"
-              onClick={onClose}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
+          <button
+            aria-label="Close favorite artists"
+            className="button-secondary inline-flex min-h-10 min-w-10 items-center justify-center rounded-full px-3"
+            onClick={onClose}
+            type="button"
+          >
+            <X className="size-4" />
+          </button>
         </div>
-      </GlassCard>
+      </div>
+
+      <ModalBody className="space-y-6">
+        <div className="flex gap-3">
+          <input
+            className="field-surface min-h-12 flex-1 rounded-full px-4 text-[15px]"
+            onChange={(event) => setInput(event.target.value)}
+            onChangeCapture={() => setInputError(null)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void addArtist();
+              }
+            }}
+            placeholder="Add an artist"
+            value={input}
+          />
+          <button
+            className="button-primary min-h-12 rounded-full px-5 text-[15px] font-medium"
+            onClick={() => void addArtist()}
+            type="button"
+          >
+            Add
+          </button>
+        </div>
+
+        {inputError ? <p className="text-[13px] text-[#aa5c5c]">{inputError}</p> : null}
+
+        <div className="flex flex-wrap gap-3">
+          {artists.length ? (
+            artists.map((artist) => (
+              <button
+                key={artist}
+                className="surface-pill rounded-full px-4 py-2 text-[14px] text-[var(--text-soft)]"
+                onClick={() => setArtists((current) => current.filter((entry) => entry !== artist))}
+                type="button"
+              >
+                {artist} x
+              </button>
+            ))
+          ) : (
+            <p className="text-[14px] text-[var(--text-faint)]">Start with three favorites if you can.</p>
+          )}
+        </div>
+
+        {error ? <p className="text-[13px] text-[#aa5c5c]">{error}</p> : null}
+      </ModalBody>
+
+      <div className="shrink-0 border-t border-white/8 px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap gap-3">
+          <button
+            className="button-primary min-h-12 rounded-full px-5 text-[15px] font-medium disabled:opacity-70"
+            disabled={pending}
+            onClick={() => void handleSave()}
+            type="button"
+          >
+            {pending ? "Saving artists" : "Save artists"}
+          </button>
+          <button
+            className="button-secondary min-h-12 rounded-full px-5 text-[15px] font-medium"
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+      </ModalFrame>
       <ArtistCorrectionModal
         canonicalArtist={correction?.canonicalArtist ?? ""}
         onConfirm={() => {
@@ -268,6 +290,6 @@ export function FavoriteArtistsDialog({
         pending={pending}
         originalArtist={correction?.originalArtist ?? ""}
       />
-    </div>
+    </>
   );
 }

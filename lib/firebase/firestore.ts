@@ -1,6 +1,8 @@
 import {
+  arrayRemove,
   arrayUnion,
   collection,
+  deleteField,
   deleteDoc,
   doc,
   getDoc,
@@ -23,18 +25,39 @@ import {
   normalizeFriendCodeInput,
 } from "@/lib/frequency/friend-code";
 import {
+  buildRoomCodeNormalized,
+  formatRoomCode,
+  normalizeRoomCodeInput,
+} from "@/lib/frequency/room-code";
+import {
+  FREQUENCY_DEMO_ROOM_ACTIVITY_SUMMARY,
+  FREQUENCY_DEMO_ROOM_DESCRIPTION,
+  FREQUENCY_DEMO_ROOM_ID,
+  FREQUENCY_DEMO_ROOM_NAME,
+} from "@/lib/frequency/demo-mode";
+import {
   normalizeChannelVibe,
   sortRoomShareItemsByRecency,
 } from "@/lib/frequency/room-share";
+import {
+  canLeaveRoom,
+  canManageRoom,
+  normalizeRoomMemberRoles,
+} from "@/lib/frequency/room-roles";
 import { normalizeRoomVisibility } from "@/lib/frequency/room-identity";
 import {
   buildFavoriteArtistEntries,
   getFavoriteArtistsInRecencyOrder,
 } from "@/lib/frequency/taste-profile";
+import {
+  hasLegacyOnboardingSignals,
+  isOnboardingComplete,
+} from "@/lib/frequency/onboarding";
 import { removeUndefinedDeep } from "@/lib/firebase/sanitize";
 import { analyzeFirestoreWrite, recordWriteTrigger } from "@/lib/firebase/write-audit";
 import type {
   FrequencyRoom,
+  PersonalSongItem,
   RoomShareItem,
   RoomShareKind,
   RoomSharePlatformLinks,
@@ -159,22 +182,59 @@ async function generateUniqueFriendCode(uid: string) {
   };
 }
 
+async function generateUniqueRoomCode(roomId: string) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const roomCodeNormalized = buildRoomCodeNormalized(roomId, attempt);
+    const collisionSnapshot = await getDocs(
+      query(
+        collection(db, "rooms"),
+        where("roomCodeNormalized", "==", roomCodeNormalized),
+        limit(1),
+      ),
+    );
+    const existingDoc = collisionSnapshot.docs[0];
+
+    if (!existingDoc || existingDoc.id === roomId) {
+      return {
+        roomCode: formatRoomCode(roomCodeNormalized),
+        roomCodeNormalized,
+      };
+    }
+  }
+
+  const fallbackNormalized = normalizeRoomCodeInput(roomId) ?? roomId.toUpperCase();
+
+  return {
+    roomCode: formatRoomCode(fallbackNormalized),
+    roomCodeNormalized: fallbackNormalized,
+  };
+}
+
 function normalizeFrequencyRoom(existing: Partial<FrequencyRoom>): FrequencyRoom {
   const normalizedChannelVibes = normalizeRoomChannelVibes(existing.channelVibes);
   const genreChannels =
     Array.isArray(existing.genreChannels) && !isLegacySeededRoom(existing)
       ? existing.genreChannels
       : [];
+  const memberIds = Array.isArray(existing.memberIds) ? existing.memberIds : [];
+  const createdBy = existing.createdBy ?? "";
 
   return {
     id: existing.id ?? "",
     name: existing.name ?? "Untitled room",
     description:
       existing.description ?? "A shared music space ready for songs, artists, and links.",
-    createdBy: existing.createdBy ?? "",
+    createdBy,
     createdAt: existing.createdAt ?? null,
     visibility: normalizeRoomVisibility(existing.visibility),
-    memberIds: Array.isArray(existing.memberIds) ? existing.memberIds : [],
+    roomCode: typeof existing.roomCode === "string" ? existing.roomCode : null,
+    roomCodeNormalized:
+      typeof existing.roomCodeNormalized === "string" ? existing.roomCodeNormalized : null,
+    memberIds,
+    memberRoles: normalizeRoomMemberRoles(existing.memberRoles, {
+      createdBy,
+      memberIds,
+    }),
     genreChannels,
     channelVibes: normalizedChannelVibes,
     songCount: typeof existing.songCount === "number" ? existing.songCount : 0,
@@ -189,6 +249,46 @@ function normalizeRoomChannelName(value: string) {
     .trim()
     .replace(/\s+/g, " ")
     .slice(0, 28);
+}
+
+function normalizePersonalSongItem(existing: Partial<PersonalSongItem>): PersonalSongItem {
+  return {
+    id: existing.id ?? "",
+    userId: typeof existing.userId === "string" ? existing.userId : "",
+    kind:
+      existing.kind === "song" || existing.kind === "artist" || existing.kind === "link"
+        ? existing.kind
+        : "song",
+    title: typeof existing.title === "string" ? existing.title : "Saved song",
+    subtitle: typeof existing.subtitle === "string" ? existing.subtitle : null,
+    url: typeof existing.url === "string" ? existing.url : null,
+    note: typeof existing.note === "string" ? existing.note : null,
+    sourcePlatform: normalizeRoomShareSourcePlatform(existing.sourcePlatform),
+    links: normalizeRoomSharePlatformLinks(existing.links),
+    artworkUrl: typeof existing.artworkUrl === "string" ? existing.artworkUrl : null,
+    resolvedArtist:
+      typeof existing.resolvedArtist === "string" ? existing.resolvedArtist : null,
+    resolvedTrack:
+      typeof existing.resolvedTrack === "string" ? existing.resolvedTrack : null,
+    primaryGenre:
+      typeof existing.primaryGenre === "string" ? existing.primaryGenre : null,
+    enrichmentStatus:
+      existing.enrichmentStatus === "loading" ||
+      existing.enrichmentStatus === "ready" ||
+      existing.enrichmentStatus === "error" ||
+      existing.enrichmentStatus === "idle"
+        ? existing.enrichmentStatus
+        : "idle",
+    enrichmentError:
+      typeof existing.enrichmentError === "string" ? existing.enrichmentError : null,
+    enrichmentSource:
+      existing.enrichmentSource === "lastfm_track" ||
+      existing.enrichmentSource === "lastfm_artist"
+        ? existing.enrichmentSource
+        : null,
+    enrichedAt: existing.enrichedAt ?? null,
+    createdAt: existing.createdAt ?? null,
+  };
 }
 
 function normalizeRoomShareItem(existing: Partial<RoomShareItem>): RoomShareItem {
@@ -206,6 +306,7 @@ function normalizeRoomShareItem(existing: Partial<RoomShareItem>): RoomShareItem
     note: typeof existing.note === "string" ? existing.note : null,
     sourcePlatform: normalizeRoomShareSourcePlatform(existing.sourcePlatform),
     links: normalizeRoomSharePlatformLinks(existing.links),
+    artworkUrl: typeof existing.artworkUrl === "string" ? existing.artworkUrl : null,
     addedBy: typeof existing.addedBy === "string" ? existing.addedBy : "",
     addedByName: typeof existing.addedByName === "string" ? existing.addedByName : null,
     resolvedArtist:
@@ -290,6 +391,78 @@ function normalizeRoomShareReactions(value: unknown): RoomShareReactions {
   );
 }
 
+function normalizeRoomShareWritableFields({
+  kind,
+  title,
+  subtitle,
+  url,
+  note,
+  sourcePlatform,
+  links,
+  artworkUrl,
+  resolvedArtist,
+  resolvedTrack,
+}: {
+  kind: RoomShareKind;
+  title: string;
+  subtitle?: string | null;
+  url?: string | null;
+  note?: string | null;
+  sourcePlatform?: RoomShareItem["sourcePlatform"];
+  links?: RoomSharePlatformLinks | null;
+  artworkUrl?: string | null;
+  resolvedArtist?: string | null;
+  resolvedTrack?: string | null;
+}) {
+  const normalizedTitle = title.trim().replace(/\s+/g, " ").slice(0, 160);
+  const normalizedSubtitle =
+    typeof subtitle === "string" ? subtitle.trim().replace(/\s+/g, " ").slice(0, 120) : null;
+  const normalizedUrl =
+    typeof url === "string" ? url.trim().slice(0, 320) : null;
+  const normalizedNote =
+    typeof note === "string" ? note.trim().replace(/\s+/g, " ").slice(0, 220) : null;
+  const normalizedSourcePlatform = normalizeRoomShareSourcePlatform(sourcePlatform);
+  const normalizedLinks = normalizeRoomSharePlatformLinks(links);
+  const normalizedArtworkUrl =
+    typeof artworkUrl === "string" ? artworkUrl.trim().slice(0, 640) : null;
+  const normalizedResolvedArtist =
+    typeof resolvedArtist === "string"
+      ? resolvedArtist.trim().replace(/\s+/g, " ").slice(0, 120)
+      : null;
+  const normalizedResolvedTrack =
+    typeof resolvedTrack === "string"
+      ? resolvedTrack.trim().replace(/\s+/g, " ").slice(0, 160)
+      : null;
+
+  if (!normalizedTitle) {
+    throw new Error("Add a song, artist, or link first.");
+  }
+
+  if (normalizedUrl && normalizedSourcePlatform && !normalizedLinks[normalizedSourcePlatform]) {
+    normalizedLinks[normalizedSourcePlatform] = normalizedUrl;
+  }
+
+  return {
+    artworkUrl: normalizedArtworkUrl,
+    kind,
+    links: normalizedLinks,
+    note: normalizedNote,
+    resolvedArtist:
+      normalizedResolvedArtist ??
+      (kind === "artist"
+        ? normalizedTitle
+        : kind === "song"
+          ? normalizedSubtitle
+          : null),
+    resolvedTrack:
+      normalizedResolvedTrack ?? (kind === "song" ? normalizedTitle : null),
+    sourcePlatform: normalizedSourcePlatform,
+    subtitle: normalizedSubtitle,
+    title: normalizedTitle,
+    url: normalizedUrl,
+  };
+}
+
 function normalizeTasteSummary(existing: Partial<UserProfile>["tasteSummary"]) {
   if (!existing || typeof existing !== "object") {
     return null;
@@ -368,7 +541,7 @@ function normalizeProfile(existing: Partial<UserProfile>, user?: User): UserProf
     friendCodeNormalized:
       typeof existing.friendCodeNormalized === "string" ? existing.friendCodeNormalized : null,
     createdAt: existing.createdAt ?? null,
-    onboardingComplete: existing.onboardingComplete ?? false,
+    onboardingComplete: isOnboardingComplete(existing),
     favoriteArtists: getFavoriteArtistsInRecencyOrder(
       existing.favoriteArtists ?? [],
       favoriteArtistEntries,
@@ -474,7 +647,9 @@ export async function ensureUserProfile(user: User) {
     updates.friendCode = friendCodeFields.friendCode;
     updates.friendCodeNormalized = friendCodeFields.friendCodeNormalized;
   }
-  if (existing.onboardingComplete === undefined) {
+  if (existing.onboardingComplete !== true && hasLegacyOnboardingSignals(existing)) {
+    updates.onboardingComplete = true;
+  } else if (existing.onboardingComplete === undefined) {
     updates.onboardingComplete = false;
   }
   if (!Array.isArray(existing.favoriteArtists)) {
@@ -636,6 +811,66 @@ export async function findUserProfileByFriendCode(friendCode: string) {
   return normalizeProfile(userDoc.data() as Partial<UserProfile>);
 }
 
+export async function addFriendRelationship({
+  currentUserId,
+  friendUserId,
+}: {
+  currentUserId: string;
+  friendUserId: string;
+}) {
+  if (!currentUserId || !friendUserId) {
+    throw new Error("Both users are required.");
+  }
+
+  if (currentUserId === friendUserId) {
+    throw new Error("You can’t add yourself.");
+  }
+
+  const currentUserRef = doc(db, "users", currentUserId);
+  const friendUserRef = doc(db, "users", friendUserId);
+  const [currentUserSnapshot, friendUserSnapshot] = await Promise.all([
+    getDoc(currentUserRef),
+    getDoc(friendUserRef),
+  ]);
+
+  if (!currentUserSnapshot.exists() || !friendUserSnapshot.exists()) {
+    throw new Error("That profile could not be found.");
+  }
+
+  const currentProfile = normalizeProfile(currentUserSnapshot.data() as Partial<UserProfile>);
+
+  if (currentProfile.friendIds.includes(friendUserId)) {
+    return { status: "already_friends" as const };
+  }
+
+  await Promise.all([
+    setClientDocument(
+      currentUserRef,
+      {
+        friendIds: arrayUnion(friendUserId),
+      },
+      { merge: true },
+      {
+        triggerReason: "add_friend_relationship_current_user",
+        userId: currentUserId,
+      },
+    ),
+    setClientDocument(
+      friendUserRef,
+      {
+        friendIds: arrayUnion(currentUserId),
+      },
+      { merge: true },
+      {
+        triggerReason: "add_friend_relationship_target_user",
+        userId: friendUserId,
+      },
+    ),
+  ]);
+
+  return { status: "added" as const };
+}
+
 export async function completeOnboarding(uid: string, favoriteArtists: string[]) {
   return saveFavoriteArtists(uid, favoriteArtists, { onboardingComplete: true });
 }
@@ -709,6 +944,7 @@ export async function createRoom({
 }) {
   const roomRef = doc(collection(db, "rooms"));
   const roomId = roomRef.id;
+  const roomCodeFields = await generateUniqueRoomCode(roomId);
 
   await setClientDocument(roomRef, {
     id: roomId,
@@ -717,7 +953,12 @@ export async function createRoom({
     createdBy: userId,
     createdAt: serverTimestamp(),
     visibility: normalizeRoomVisibility(visibility),
+    roomCode: roomCodeFields.roomCode,
+    roomCodeNormalized: roomCodeFields.roomCodeNormalized,
     memberIds: [userId],
+    memberRoles: {
+      [userId]: "owner",
+    },
     genreChannels: [],
     channelVibes: {},
     songCount: 0,
@@ -741,6 +982,193 @@ export async function createRoom({
   );
 
   return roomId;
+}
+
+export async function ensureDemoRoomForUser(userId: string) {
+  const normalizedUserId = userId.trim();
+
+  if (!normalizedUserId) {
+    throw new Error("Sign in again before opening the demo room.");
+  }
+
+  let room: FrequencyRoom;
+  const demoRoomRef = doc(db, "rooms", FREQUENCY_DEMO_ROOM_ID);
+  const existingDemoSnapshot = await getDoc(demoRoomRef);
+
+  if (existingDemoSnapshot.exists()) {
+    room = normalizeFrequencyRoom(
+      existingDemoSnapshot.data() as Partial<FrequencyRoom>,
+    );
+  } else {
+    const existingNamedRoomSnapshot = await getDocs(
+      query(
+        collection(db, "rooms"),
+        where("name", "==", FREQUENCY_DEMO_ROOM_NAME),
+        limit(1),
+      ),
+    );
+    const existingNamedRoomDoc = existingNamedRoomSnapshot.docs[0];
+
+    if (existingNamedRoomDoc) {
+      room = normalizeFrequencyRoom(
+        existingNamedRoomDoc.data() as Partial<FrequencyRoom>,
+      );
+    } else {
+      const roomCodeFields = await generateUniqueRoomCode(FREQUENCY_DEMO_ROOM_ID);
+
+      await setClientDocument(
+        demoRoomRef,
+        {
+          activitySummary: FREQUENCY_DEMO_ROOM_ACTIVITY_SUMMARY,
+          channelVibes: {},
+          createdAt: serverTimestamp(),
+          createdBy: normalizedUserId,
+          description: FREQUENCY_DEMO_ROOM_DESCRIPTION,
+          genreChannels: [],
+          id: FREQUENCY_DEMO_ROOM_ID,
+          memberIds: [],
+          memberRoles: {
+            [normalizedUserId]: "owner",
+          },
+          name: FREQUENCY_DEMO_ROOM_NAME,
+          roomCode: roomCodeFields.roomCode,
+          roomCodeNormalized: roomCodeFields.roomCodeNormalized,
+          songCount: 0,
+          starterVibe: "Classroom demo",
+          visibility: "public",
+        },
+        { merge: true },
+        {
+          triggerReason: "ensure_demo_room_document",
+          userId: normalizedUserId,
+        },
+      );
+
+      room = normalizeFrequencyRoom({
+        activitySummary: FREQUENCY_DEMO_ROOM_ACTIVITY_SUMMARY,
+        channelVibes: {},
+        createdAt: null,
+        createdBy: normalizedUserId,
+        description: FREQUENCY_DEMO_ROOM_DESCRIPTION,
+        genreChannels: [],
+        id: FREQUENCY_DEMO_ROOM_ID,
+        memberIds: [],
+        memberRoles: {
+          [normalizedUserId]: "owner",
+        },
+        name: FREQUENCY_DEMO_ROOM_NAME,
+        roomCode: roomCodeFields.roomCode,
+        roomCodeNormalized: roomCodeFields.roomCodeNormalized,
+        songCount: 0,
+        starterVibe: "Classroom demo",
+        visibility: "public",
+      });
+    }
+  }
+
+  if (!room.roomCode || !room.roomCodeNormalized) {
+    room = await ensureRoomInviteFields(room.id);
+  }
+
+  await Promise.all([
+    setDoc(
+      doc(db, "rooms", room.id),
+      {
+        memberIds: arrayUnion(normalizedUserId),
+        memberRoles: {
+          [normalizedUserId]:
+            room.createdBy === normalizedUserId
+              ? "owner"
+              : room.memberRoles?.[normalizedUserId] ?? "member",
+        },
+      },
+      { merge: true },
+    ),
+    setClientDocument(
+      doc(db, "users", normalizedUserId),
+      {
+        joinedRoomIds: arrayUnion(room.id),
+      },
+      { merge: true },
+      {
+        triggerReason: "ensure_demo_room_joined_room_ids",
+        userId: normalizedUserId,
+      },
+    ),
+  ]);
+
+  return {
+    ...room,
+    memberIds: room.memberIds.includes(normalizedUserId)
+      ? room.memberIds
+      : [...room.memberIds, normalizedUserId],
+    memberRoles: {
+      ...room.memberRoles,
+      [normalizedUserId]:
+        room.createdBy === normalizedUserId
+          ? "owner"
+          : room.memberRoles?.[normalizedUserId] ?? "member",
+    },
+  } satisfies FrequencyRoom;
+}
+
+export async function ensureRoomInviteFields(roomId: string) {
+  const roomRef = doc(db, "rooms", roomId);
+  const snapshot = await getDoc(roomRef);
+
+  if (!snapshot.exists()) {
+    throw new Error("Room not found.");
+  }
+
+  const existingRoom = normalizeFrequencyRoom(snapshot.data() as Partial<FrequencyRoom>);
+
+  if (existingRoom.roomCode && existingRoom.roomCodeNormalized) {
+    return existingRoom;
+  }
+
+  const roomCodeFields = await generateUniqueRoomCode(roomId);
+
+  await setClientDocument(
+    roomRef,
+    {
+      roomCode: roomCodeFields.roomCode,
+      roomCodeNormalized: roomCodeFields.roomCodeNormalized,
+    },
+    { merge: true },
+    {
+      triggerReason: "ensure_room_invite_fields",
+      userId: null,
+    },
+  );
+
+  return {
+    ...existingRoom,
+    roomCode: roomCodeFields.roomCode,
+    roomCodeNormalized: roomCodeFields.roomCodeNormalized,
+  } satisfies FrequencyRoom;
+}
+
+export async function findRoomByRoomCode(roomCode: string) {
+  const normalizedCode = normalizeRoomCodeInput(roomCode);
+
+  if (!normalizedCode) {
+    return null;
+  }
+
+  const snapshot = await getDocs(
+    query(
+      collection(db, "rooms"),
+      where("roomCodeNormalized", "==", normalizedCode),
+      limit(1),
+    ),
+  );
+  const roomDoc = snapshot.docs[0];
+
+  if (!roomDoc) {
+    return null;
+  }
+
+  return normalizeFrequencyRoom(roomDoc.data() as Partial<FrequencyRoom>);
 }
 
 export async function createRoomChannel(
@@ -802,6 +1230,240 @@ export async function createRoomChannel(
   return normalizedChannelName;
 }
 
+export async function addPersonalSongItem({
+  userId,
+  kind,
+  title,
+  subtitle,
+  url,
+  note,
+  sourcePlatform,
+  links,
+  artworkUrl,
+  resolvedArtist,
+  resolvedTrack,
+}: {
+  userId: string;
+  kind: RoomShareKind;
+  title: string;
+  subtitle?: string | null;
+  url?: string | null;
+  note?: string | null;
+  sourcePlatform?: RoomShareItem["sourcePlatform"];
+  links?: RoomSharePlatformLinks | null;
+  artworkUrl?: string | null;
+  resolvedArtist?: string | null;
+  resolvedTrack?: string | null;
+}) {
+  const normalizedTitle = title.trim().replace(/\s+/g, " ").slice(0, 160);
+  const normalizedSubtitle =
+    typeof subtitle === "string" ? subtitle.trim().replace(/\s+/g, " ").slice(0, 120) : null;
+  const normalizedUrl =
+    typeof url === "string" ? url.trim().slice(0, 320) : null;
+  const normalizedNote =
+    typeof note === "string" ? note.trim().replace(/\s+/g, " ").slice(0, 220) : null;
+  const normalizedSourcePlatform = normalizeRoomShareSourcePlatform(sourcePlatform);
+  const normalizedLinks = normalizeRoomSharePlatformLinks(links);
+  const normalizedArtworkUrl =
+    typeof artworkUrl === "string" ? artworkUrl.trim().slice(0, 640) : null;
+  const normalizedResolvedArtist =
+    typeof resolvedArtist === "string"
+      ? resolvedArtist.trim().replace(/\s+/g, " ").slice(0, 120)
+      : null;
+  const normalizedResolvedTrack =
+    typeof resolvedTrack === "string"
+      ? resolvedTrack.trim().replace(/\s+/g, " ").slice(0, 160)
+      : null;
+
+  if (!normalizedTitle) {
+    throw new Error("Add a song, artist, or link first.");
+  }
+
+  if (normalizedUrl && normalizedSourcePlatform && !normalizedLinks[normalizedSourcePlatform]) {
+    normalizedLinks[normalizedSourcePlatform] = normalizedUrl;
+  }
+
+  const saveRef = doc(collection(db, "users", userId, "savedSongs"));
+
+  console.log("[frequency][personal-song-enrichment]", {
+    event: "personal_song_add_requested",
+    userId,
+    kind,
+    title: normalizedTitle,
+    subtitle: normalizedSubtitle,
+    url: normalizedUrl,
+    note: normalizedNote,
+  });
+
+  await setClientDocument(
+    saveRef,
+    {
+      id: saveRef.id,
+      userId,
+      kind,
+      title: normalizedTitle,
+      subtitle: normalizedSubtitle,
+      url: normalizedUrl,
+      note: normalizedNote,
+      sourcePlatform: normalizedSourcePlatform,
+      links: normalizedLinks,
+      artworkUrl: normalizedArtworkUrl,
+      resolvedArtist: normalizedResolvedArtist,
+      resolvedTrack: normalizedResolvedTrack,
+      primaryGenre: null,
+      enrichmentStatus: "loading",
+      enrichmentError: null,
+      enrichmentSource: null,
+      enrichedAt: null,
+      createdAt: serverTimestamp(),
+    },
+    undefined,
+    {
+      triggerReason: "add_personal_song_item",
+      userId,
+    },
+  );
+
+  try {
+    console.log("[frequency][personal-song-enrichment]", {
+      event: "personal_song_enrichment_triggered",
+      userId,
+      itemId: saveRef.id,
+    });
+
+    await triggerPersonalSongEnrichment({
+      itemId: saveRef.id,
+      userId,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Personal song enrichment request failed.";
+
+    await setClientDocument(
+      saveRef,
+      {
+        enrichmentStatus: "error",
+        enrichmentError: errorMessage,
+      },
+      { merge: true },
+      {
+        triggerReason: "add_personal_song_item_enrichment_failed",
+        userId,
+      },
+    );
+
+    console.error("[frequency][personal-song-enrichment]", {
+      event: "personal_song_enrichment_failed",
+      userId,
+      itemId: saveRef.id,
+      error: errorMessage,
+    });
+  }
+
+  return saveRef.id;
+}
+
+export async function updatePersonalSongItem({
+  userId,
+  itemId,
+  kind,
+  title,
+  subtitle,
+  url,
+  note,
+  sourcePlatform,
+  links,
+  artworkUrl,
+  resolvedArtist,
+  resolvedTrack,
+}: {
+  userId: string;
+  itemId: string;
+  kind: RoomShareKind;
+  title: string;
+  subtitle?: string | null;
+  url?: string | null;
+  note?: string | null;
+  sourcePlatform?: RoomShareItem["sourcePlatform"];
+  links?: RoomSharePlatformLinks | null;
+  artworkUrl?: string | null;
+  resolvedArtist?: string | null;
+  resolvedTrack?: string | null;
+}) {
+  const normalizedUserId = userId.trim();
+
+  if (!normalizedUserId) {
+    throw new Error("Sign in again before editing this save.");
+  }
+
+  const saveRef = doc(db, "users", normalizedUserId, "savedSongs", itemId);
+  const snapshot = await getDoc(saveRef);
+
+  if (!snapshot.exists()) {
+    throw new Error("That saved song could not be found.");
+  }
+
+  const writableFields = normalizeRoomShareWritableFields({
+    artworkUrl,
+    kind,
+    links,
+    note,
+    resolvedArtist,
+    resolvedTrack,
+    sourcePlatform,
+    subtitle,
+    title,
+    url,
+  });
+
+  await setClientDocument(
+    saveRef,
+    {
+      ...writableFields,
+      primaryGenre: null,
+      enrichmentStatus: "loading",
+      enrichmentError: null,
+      enrichmentSource: null,
+      enrichedAt: null,
+    },
+    { merge: true },
+    {
+      triggerReason: "update_personal_song_item",
+      userId: normalizedUserId,
+    },
+  );
+
+  try {
+    await triggerPersonalSongEnrichment({
+      itemId,
+      userId: normalizedUserId,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Personal song enrichment request failed.";
+
+    await setClientDocument(
+      saveRef,
+      {
+        enrichmentStatus: "error",
+        enrichmentError: errorMessage,
+      },
+      { merge: true },
+      {
+        triggerReason: "update_personal_song_item_enrichment_failed",
+        userId: normalizedUserId,
+      },
+    );
+
+    console.error("[frequency][personal-song-enrichment]", {
+      event: "personal_song_update_enrichment_failed",
+      userId: normalizedUserId,
+      itemId,
+      error: errorMessage,
+    });
+  }
+}
+
 export async function addRoomShareItem({
   roomId,
   channel,
@@ -810,6 +1472,11 @@ export async function addRoomShareItem({
   subtitle,
   url,
   note,
+  sourcePlatform,
+  links,
+  artworkUrl,
+  resolvedArtist,
+  resolvedTrack,
   addedBy,
   addedByName,
 }: {
@@ -820,6 +1487,11 @@ export async function addRoomShareItem({
   subtitle?: string | null;
   url?: string | null;
   note?: string | null;
+  sourcePlatform?: RoomShareItem["sourcePlatform"];
+  links?: RoomSharePlatformLinks | null;
+  artworkUrl?: string | null;
+  resolvedArtist?: string | null;
+  resolvedTrack?: string | null;
   addedBy: string;
   addedByName?: string | null;
 }) {
@@ -831,6 +1503,18 @@ export async function addRoomShareItem({
     typeof url === "string" ? url.trim().slice(0, 320) : null;
   const normalizedNote =
     typeof note === "string" ? note.trim().replace(/\s+/g, " ").slice(0, 220) : null;
+  const normalizedSourcePlatform = normalizeRoomShareSourcePlatform(sourcePlatform);
+  const normalizedLinks = normalizeRoomSharePlatformLinks(links);
+  const normalizedArtworkUrl =
+    typeof artworkUrl === "string" ? artworkUrl.trim().slice(0, 640) : null;
+  const normalizedResolvedArtist =
+    typeof resolvedArtist === "string"
+      ? resolvedArtist.trim().replace(/\s+/g, " ").slice(0, 120)
+      : null;
+  const normalizedResolvedTrack =
+    typeof resolvedTrack === "string"
+      ? resolvedTrack.trim().replace(/\s+/g, " ").slice(0, 160)
+      : null;
 
   if (!normalizedChannel) {
     throw new Error("Choose a channel first.");
@@ -840,7 +1524,20 @@ export async function addRoomShareItem({
     throw new Error("Add a song, artist, or link first.");
   }
 
+  if (normalizedUrl && normalizedSourcePlatform && !normalizedLinks[normalizedSourcePlatform]) {
+    normalizedLinks[normalizedSourcePlatform] = normalizedUrl;
+  }
+
   const shareRef = doc(collection(db, "rooms", roomId, "items"));
+  const initialResolvedArtist =
+    normalizedResolvedArtist ??
+    (kind === "artist"
+      ? normalizedTitle
+      : kind === "song"
+        ? normalizedSubtitle
+        : null);
+  const initialResolvedTrack =
+    normalizedResolvedTrack ?? (kind === "song" ? normalizedTitle : null);
 
   console.log("[frequency][room-share-enrichment]", {
     event: "room_share_item_add_requested",
@@ -864,17 +1561,13 @@ export async function addRoomShareItem({
       subtitle: normalizedSubtitle,
       url: normalizedUrl,
       note: normalizedNote,
-      sourcePlatform: null,
-      links: {
-        appleMusic: null,
-        soundcloud: null,
-        spotify: null,
-        youtube: null,
-      },
+      sourcePlatform: normalizedSourcePlatform,
+      links: normalizedLinks,
+      artworkUrl: normalizedArtworkUrl,
       addedBy,
       addedByName: addedByName?.trim() || null,
-      resolvedArtist: null,
-      resolvedTrack: null,
+      resolvedArtist: initialResolvedArtist,
+      resolvedTrack: initialResolvedTrack,
       primaryGenre: null,
       enrichmentStatus: "loading",
       enrichmentError: null,
@@ -904,56 +1597,59 @@ export async function addRoomShareItem({
     { merge: true },
   );
 
-  try {
-    console.log("[frequency][room-share-enrichment]", {
-      event: "room_share_item_enrichment_triggered",
-      roomId,
-      itemId: shareRef.id,
-    });
-
-    const response = await fetch("/api/rooms/share/enrich", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+  void (async () => {
+    try {
+      console.log("[frequency][room-share-enrichment]", {
+        event: "room_share_item_enrichment_triggered",
         roomId,
         itemId: shareRef.id,
-      }),
-    });
+      });
 
-    if (!response.ok) {
-      let errorMessage = "Room share enrichment failed.";
+      const response = await fetch("/api/rooms/share/enrich", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          roomId,
+          itemId: shareRef.id,
+        }),
+      });
 
-      try {
-        const payload = (await response.json()) as { error?: string };
-        if (payload.error) {
-          errorMessage = payload.error;
+      if (!response.ok) {
+        let errorMessage = "Room share enrichment failed.";
+
+        try {
+          const payload = (await response.json()) as { error?: string };
+          if (payload.error) {
+            errorMessage = payload.error;
+          }
+        } catch {
+          // Ignore JSON parsing errors and keep the fallback message.
         }
-      } catch {
-        // Ignore JSON parsing errors and keep the fallback message.
+
+        await setClientDocument(
+          shareRef,
+          {
+            enrichmentStatus: "error",
+            enrichmentError: errorMessage,
+          },
+          { merge: true },
+          {
+            triggerReason: "add_room_share_item_enrichment_failed",
+            userId: addedBy,
+          },
+        );
+
+        console.log("[frequency][room-share-enrichment]", {
+          event: "room_share_item_enrichment_degraded",
+          roomId,
+          itemId: shareRef.id,
+          error: errorMessage,
+        });
+        return;
       }
 
-      await setClientDocument(
-        shareRef,
-        {
-          enrichmentStatus: "error",
-          enrichmentError: errorMessage,
-        },
-        { merge: true },
-        {
-          triggerReason: "add_room_share_item_enrichment_failed",
-          userId: addedBy,
-        },
-      );
-
-      console.error("[frequency][room-share-enrichment]", {
-        event: "room_share_item_enrichment_failed",
-        roomId,
-        itemId: shareRef.id,
-        error: errorMessage,
-      });
-    } else {
       const payload = (await response.json()) as {
         result?: {
           kind?: RoomShareKind;
@@ -984,33 +1680,254 @@ export async function addRoomShareItem({
         hasSpotify: Boolean(payload.result?.links?.spotify),
         hasYouTube: Boolean(payload.result?.links?.youtube),
       });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Room share enrichment request failed.";
+
+      await setClientDocument(
+        shareRef,
+        {
+          enrichmentStatus: "error",
+          enrichmentError: errorMessage,
+        },
+        { merge: true },
+        {
+          triggerReason: "add_room_share_item_enrichment_network_failed",
+          userId: addedBy,
+        },
+      );
+
+      console.log("[frequency][room-share-enrichment]", {
+        event: "room_share_item_enrichment_network_degraded",
+        roomId,
+        itemId: shareRef.id,
+        error: errorMessage,
+      });
     }
+  })();
+
+  return shareRef.id;
+}
+
+export async function updateRoomShareItem({
+  roomId,
+  itemId,
+  updatedBy,
+  kind,
+  title,
+  subtitle,
+  url,
+  note,
+  sourcePlatform,
+  links,
+  artworkUrl,
+  resolvedArtist,
+  resolvedTrack,
+}: {
+  roomId: string;
+  itemId: string;
+  updatedBy: string;
+  kind: RoomShareKind;
+  title: string;
+  subtitle?: string | null;
+  url?: string | null;
+  note?: string | null;
+  sourcePlatform?: RoomShareItem["sourcePlatform"];
+  links?: RoomSharePlatformLinks | null;
+  artworkUrl?: string | null;
+  resolvedArtist?: string | null;
+  resolvedTrack?: string | null;
+}) {
+  const normalizedUpdatedBy = updatedBy.trim();
+
+  if (!normalizedUpdatedBy) {
+    throw new Error("Sign in again before editing this song.");
+  }
+
+  const itemRef = doc(db, "rooms", roomId, "items", itemId);
+  const roomRef = doc(db, "rooms", roomId);
+  const [itemSnapshot, roomSnapshot] = await Promise.all([getDoc(itemRef), getDoc(roomRef)]);
+
+  if (!itemSnapshot.exists()) {
+    throw new Error("That song could not be found.");
+  }
+
+  const existingItem = normalizeRoomShareItem(itemSnapshot.data() as Partial<RoomShareItem>);
+
+  if (existingItem.addedBy !== normalizedUpdatedBy) {
+    throw new Error("Only the person who uploaded this song can edit it.");
+  }
+
+  const room = roomSnapshot.exists()
+    ? normalizeFrequencyRoom(roomSnapshot.data() as Partial<FrequencyRoom>)
+    : null;
+  const writableFields = normalizeRoomShareWritableFields({
+    artworkUrl,
+    kind,
+    links,
+    note,
+    resolvedArtist,
+    resolvedTrack,
+    sourcePlatform,
+    subtitle,
+    title,
+    url,
+  });
+
+  await setClientDocument(
+    itemRef,
+    {
+      ...writableFields,
+      primaryGenre: null,
+      enrichmentStatus: "loading",
+      enrichmentError: null,
+      enrichmentSource: null,
+      enrichedAt: null,
+    },
+    { merge: true },
+    {
+      triggerReason: "update_room_share_item",
+      userId: normalizedUpdatedBy,
+    },
+  );
+
+  if (room) {
+    await setClientDocument(
+      roomRef,
+      {
+        activitySummary: `${writableFields.title} was updated in ${existingItem.channel || "room"}.`,
+      },
+      { merge: true },
+      {
+        triggerReason: "update_room_share_item_activity_summary",
+        userId: normalizedUpdatedBy,
+      },
+    );
+  }
+
+  try {
+    await triggerRoomShareEnrichment({
+      itemId,
+      roomId,
+    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Room share enrichment request failed.";
 
     await setClientDocument(
-      shareRef,
+      itemRef,
       {
         enrichmentStatus: "error",
         enrichmentError: errorMessage,
       },
       { merge: true },
       {
-        triggerReason: "add_room_share_item_enrichment_network_failed",
-        userId: addedBy,
+        triggerReason: "update_room_share_item_enrichment_failed",
+        userId: normalizedUpdatedBy,
       },
     );
 
     console.error("[frequency][room-share-enrichment]", {
-      event: "room_share_item_enrichment_network_failed",
+      event: "room_share_item_update_enrichment_failed",
       roomId,
-      itemId: shareRef.id,
+      itemId,
       error: errorMessage,
     });
   }
+}
 
-  return shareRef.id;
+export async function triggerRoomShareEnrichment({
+  roomId,
+  itemId,
+}: {
+  roomId: string;
+  itemId: string;
+}) {
+  const response = await fetch("/api/rooms/share/enrich", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      roomId,
+      itemId,
+    }),
+  });
+
+  if (!response.ok) {
+    let errorMessage = "Room share enrichment failed.";
+
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error) {
+        errorMessage = payload.error;
+      }
+    } catch {
+      // Keep the fallback error.
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  return (await response.json()) as {
+    result?: {
+      artist?: string | null;
+      artworkUrl?: string | null;
+      itemId?: string;
+      links?: RoomSharePlatformLinks | null;
+      primaryGenre?: string | null;
+      status?: string;
+      title?: string | null;
+      track?: string | null;
+    };
+  };
+}
+
+export async function triggerPersonalSongEnrichment({
+  userId,
+  itemId,
+}: {
+  userId: string;
+  itemId: string;
+}) {
+  const response = await fetch("/api/personal-saves/enrich", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      userId,
+      itemId,
+    }),
+  });
+
+  if (!response.ok) {
+    let errorMessage = "Personal song enrichment failed.";
+
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error) {
+        errorMessage = payload.error;
+      }
+    } catch {
+      // Keep the fallback error.
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  return (await response.json()) as {
+    result?: {
+      artworkUrl?: string | null;
+      artist?: string | null;
+      itemId?: string;
+      links?: RoomSharePlatformLinks | null;
+      primaryGenre?: string | null;
+      status?: string;
+      title?: string | null;
+      track?: string | null;
+    };
+  };
 }
 
 export async function toggleRoomShareReaction({
@@ -1073,6 +1990,12 @@ export async function removeRoomShareItem({
   itemId: string;
   removedBy: string;
 }) {
+  const normalizedRemovedBy = removedBy.trim();
+
+  if (!normalizedRemovedBy) {
+    throw new Error("Sign in again before removing this song.");
+  }
+
   const itemRef = doc(db, "rooms", roomId, "items", itemId);
   const roomRef = doc(db, "rooms", roomId);
   const [itemSnapshot, roomSnapshot] = await Promise.all([getDoc(itemRef), getDoc(roomRef)]);
@@ -1085,6 +2008,11 @@ export async function removeRoomShareItem({
   const room = roomSnapshot.exists()
     ? normalizeFrequencyRoom(roomSnapshot.data() as Partial<FrequencyRoom>)
     : null;
+
+  if (item.addedBy !== normalizedRemovedBy && (!room || !canManageRoom(room, normalizedRemovedBy))) {
+    throw new Error("Only the uploader, owner, or co-owner can remove this song.");
+  }
+
   const nextSongCount = room ? Math.max(room.songCount - 1, 0) : 0;
 
   console.log("[frequency][room-share]", {
@@ -1093,7 +2021,7 @@ export async function removeRoomShareItem({
     itemId,
     channel: item.channel,
     title: item.title,
-    removedBy,
+    removedBy: normalizedRemovedBy,
   });
 
   await deleteDoc(itemRef);
@@ -1107,7 +2035,7 @@ export async function removeRoomShareItem({
     { merge: true },
     {
       triggerReason: "remove_room_share_item",
-      userId: removedBy,
+      userId: normalizedRemovedBy,
       writeType: "client_remove",
     },
   );
@@ -1118,6 +2046,171 @@ export async function removeRoomShareItem({
     itemId,
     nextSongCount,
   });
+}
+
+export async function acceptRoomInvite({
+  roomId,
+  uid,
+}: {
+  roomId: string;
+  uid: string;
+}) {
+  const roomRef = doc(db, "rooms", roomId);
+  const userRef = doc(db, "users", uid);
+  const [roomSnapshot, userSnapshot] = await Promise.all([getDoc(roomRef), getDoc(userRef)]);
+
+  if (!roomSnapshot.exists()) {
+    throw new Error("That room could not be found.");
+  }
+
+  if (!userSnapshot.exists()) {
+    throw new Error("Sign in again before joining this room.");
+  }
+
+  const room = normalizeFrequencyRoom(roomSnapshot.data() as Partial<FrequencyRoom>);
+
+  if (room.memberIds.includes(uid)) {
+    return {
+      room,
+      status: "already_joined" as const,
+    };
+  }
+
+  await Promise.all([
+    setDoc(
+      roomRef,
+      {
+        memberIds: arrayUnion(uid),
+        memberRoles: {
+          [uid]: "member",
+        },
+      },
+      { merge: true },
+    ),
+    setClientDocument(
+      userRef,
+      {
+        joinedRoomIds: arrayUnion(roomId),
+      },
+      { merge: true },
+      {
+        triggerReason: "accept_room_invite_joined_room_ids",
+        userId: uid,
+      },
+    ),
+  ]);
+
+  return {
+    room,
+    status: "joined" as const,
+  };
+}
+
+export async function leaveRoom({
+  roomId,
+  uid,
+}: {
+  roomId: string;
+  uid: string;
+}) {
+  const roomRef = doc(db, "rooms", roomId);
+  const userRef = doc(db, "users", uid);
+  const [roomSnapshot, userSnapshot] = await Promise.all([getDoc(roomRef), getDoc(userRef)]);
+
+  if (!roomSnapshot.exists()) {
+    throw new Error("That room could not be found.");
+  }
+
+  if (!userSnapshot.exists()) {
+    throw new Error("Sign in again before leaving this room.");
+  }
+
+  const room = normalizeFrequencyRoom(roomSnapshot.data() as Partial<FrequencyRoom>);
+
+  if (!room.memberIds.includes(uid)) {
+    return { status: "already_left" as const };
+  }
+
+  if (!canLeaveRoom(room, uid)) {
+    throw new Error("Delete this group before leaving so it does not lose its owner.");
+  }
+
+  await Promise.all([
+    setDoc(
+      roomRef,
+      {
+        memberIds: arrayRemove(uid),
+        memberRoles: {
+          [uid]: deleteField(),
+        },
+      },
+      { merge: true },
+    ),
+    setClientDocument(
+      userRef,
+      {
+        joinedRoomIds: arrayRemove(roomId),
+      },
+      { merge: true },
+      {
+        triggerReason: "leave_room_joined_room_ids",
+        userId: uid,
+      },
+    ),
+  ]);
+
+  return { status: "left" as const };
+}
+
+export async function deleteRoom({
+  roomId,
+  uid,
+}: {
+  roomId: string;
+  uid: string;
+}) {
+  const normalizedUid = uid.trim();
+
+  if (!normalizedUid) {
+    throw new Error("Sign in again before deleting this group.");
+  }
+
+  const roomRef = doc(db, "rooms", roomId);
+  const roomSnapshot = await getDoc(roomRef);
+
+  if (!roomSnapshot.exists()) {
+    throw new Error("That room could not be found.");
+  }
+
+  const room = normalizeFrequencyRoom(roomSnapshot.data() as Partial<FrequencyRoom>);
+
+  if (!canManageRoom(room, normalizedUid)) {
+    throw new Error("Only an owner or co-owner can delete this group.");
+  }
+
+  const itemSnapshot = await getDocs(collection(db, "rooms", roomId, "items"));
+
+  await Promise.all(itemSnapshot.docs.map((itemDoc) => deleteDoc(itemDoc.ref)));
+  await deleteDoc(roomRef);
+
+  await Promise.all(
+    room.memberIds.map((memberId) =>
+      setClientDocument(
+        doc(db, "users", memberId),
+        {
+          joinedRoomIds: arrayRemove(roomId),
+        },
+        { merge: true },
+        {
+          triggerReason: "delete_room_joined_room_ids",
+          userId: normalizedUid,
+          writeType: "client_delete_room_cleanup",
+        },
+      ),
+    ),
+  );
+
+  return { status: "deleted" as const };
 }
 
 export function observeJoinedRooms(
@@ -1229,4 +2322,45 @@ export function observeRoomShareItemsByRoomIds(
   return () => {
     unsubscribers.forEach((unsubscribe) => unsubscribe());
   };
+}
+
+export function observePersonalSongItems(
+  userId: string,
+  callback: (items: PersonalSongItem[]) => void,
+) {
+  return onSnapshot(
+    collection(db, "users", userId, "savedSongs"),
+    (snapshot) => {
+      const items = snapshot.docs
+        .map((itemDoc) =>
+          normalizePersonalSongItem(itemDoc.data() as Partial<PersonalSongItem>),
+        )
+        .sort((left, right) => {
+          const leftSeconds = (left.createdAt as { seconds?: number } | null)?.seconds ?? 0;
+          const rightSeconds = (right.createdAt as { seconds?: number } | null)?.seconds ?? 0;
+          return rightSeconds - leftSeconds;
+        });
+      callback(items);
+    },
+    () => {
+      callback([]);
+    },
+  );
+}
+
+export async function removePersonalSongItem({
+  userId,
+  itemId,
+}: {
+  userId: string;
+  itemId: string;
+}) {
+  const itemRef = doc(db, "users", userId, "savedSongs", itemId);
+  await deleteDoc(itemRef);
+
+  console.log("[frequency][personal-song]", {
+    event: "personal_song_removed",
+    userId,
+    itemId,
+  });
 }

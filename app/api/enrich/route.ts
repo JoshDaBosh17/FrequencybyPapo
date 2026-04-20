@@ -56,12 +56,13 @@ export async function POST(request: Request) {
       resolveRecommendation: body.resolveRecommendation,
       recommendationIntent: body.recommendationIntent,
     });
+    const tasteSummaryOverview = result?.tasteSummary?.overview ?? null;
     console.log("[frequency][taste-summary-flow]", {
       event: "api_enrich_completed",
       uid,
-      hasTasteSummary: Boolean(result.tasteSummary?.overview),
-      tasteSummaryOverview: result.tasteSummary?.overview ?? null,
-      hasHomeSuggestion: Boolean(result.homeSuggestion),
+      hasTasteSummary: Boolean(tasteSummaryOverview),
+      tasteSummaryOverview,
+      hasHomeSuggestion: Boolean(result?.homeSuggestion),
     });
     return NextResponse.json({ ok: true, result });
   } catch (error) {

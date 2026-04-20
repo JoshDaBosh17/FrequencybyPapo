@@ -1,7 +1,8 @@
 "use client";
 
-import { GlassCard } from "./glass-card";
 import { FavoriteArtistsList } from "./favorite-artists-list";
+import { ModalBody, ModalFrame } from "./modal-frame";
+import { useModalLock } from "./use-modal-lock";
 
 export function FavoriteArtistsModal({
   open,
@@ -14,13 +15,18 @@ export function FavoriteArtistsModal({
   entries: Array<{ artist: string; addedAt: string }>;
   primaryGenresByArtist: Map<string, string | null>;
 }) {
+  useModalLock({
+    onClose,
+    open,
+  });
+
   if (!open) {
     return null;
   }
 
   return (
-    <div className="modal-scrim fixed inset-0 z-40 flex items-center justify-center px-4 py-8 backdrop-blur-sm">
-      <GlassCard strong className="flex max-h-[78vh] w-full max-w-xl flex-col rounded-[32px] p-6 sm:p-7">
+    <ModalFrame className="max-w-xl" onClose={onClose}>
+      <div className="shrink-0 border-b border-white/8 px-5 py-5 sm:px-6 sm:py-6">
         <div className="space-y-2">
           <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
             Favorite artists
@@ -41,11 +47,11 @@ export function FavoriteArtistsModal({
             Your full artist timeline, kept in newest-first order so it matches the helix.
           </p>
         </div>
+      </div>
 
-        <div className="mt-5 overflow-y-auto pr-1">
-          <FavoriteArtistsList entries={entries} primaryGenresByArtist={primaryGenresByArtist} />
-        </div>
-      </GlassCard>
-    </div>
+      <ModalBody className="pr-1">
+        <FavoriteArtistsList entries={entries} primaryGenresByArtist={primaryGenresByArtist} />
+      </ModalBody>
+    </ModalFrame>
   );
 }

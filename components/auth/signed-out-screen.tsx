@@ -1,7 +1,21 @@
 import { GlassCard } from "@/components/frequency/glass-card";
+import {
+  FREQUENCY_DEMO_ROOM_NAME,
+  IS_FREQUENCY_DEMO_MODE,
+} from "@/lib/frequency/demo-mode";
 import { GoogleSignInButton } from "./google-sign-in-button";
 
 export function SignedOutScreen() {
+  const headline = IS_FREQUENCY_DEMO_MODE
+    ? "Sign in and jump straight into the shared room."
+    : "Music feels better when it's shared.";
+  const subtitle = IS_FREQUENCY_DEMO_MODE
+    ? `Everyone lands in ${FREQUENCY_DEMO_ROOM_NAME} automatically so the class can start adding songs right away.`
+    : "Build rooms, invite people, and shape the vibe together.";
+  const helperCopy = IS_FREQUENCY_DEMO_MODE
+    ? "Live classroom demo mode is on."
+    : "Start with your taste, then make it social.";
+
   return (
     <main className="relative flex min-h-screen items-center overflow-hidden px-4 py-10 sm:px-6">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -21,17 +35,17 @@ export function SignedOutScreen() {
 
           <div className="max-w-2xl space-y-4">
             <h1 className="text-balance text-[42px] font-semibold tracking-[-0.06em] text-[var(--text)] sm:text-[58px]">
-              Music feels better when it&apos;s shared.
+              {headline}
             </h1>
             <p className="max-w-xl text-[18px] leading-8 text-[var(--text-soft)]">
-              Build rooms, invite people, and shape the vibe together.
+              {subtitle}
             </p>
           </div>
 
           <div className="max-w-md space-y-3">
             <GoogleSignInButton />
             <p className="text-[14px] leading-6 text-[var(--text-faint)]">
-              Start with your taste, then make it social.
+              {helperCopy}
             </p>
           </div>
         </section>

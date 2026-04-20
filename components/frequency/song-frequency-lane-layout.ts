@@ -19,7 +19,9 @@ export type SongFrequencyTimelineNode = {
 
 type BuildSongFrequencyTimelineLayoutParams = {
   compact?: boolean;
+  dateMarkerMode?: boolean;
   items: SongActivityItem[];
+  mobileHeroMode?: boolean;
   reactionMode?: boolean;
   socialDetailMode?: boolean;
   waveConfig: HorizontalWaveConfig;
@@ -27,19 +29,28 @@ type BuildSongFrequencyTimelineLayoutParams = {
 
 const HERO_MIN_TAG_WIDTH = 164;
 const HERO_MAX_TAG_WIDTH = 236;
+const MOBILE_HERO_MIN_TAG_WIDTH = 144;
+const MOBILE_HERO_MAX_TAG_WIDTH = 212;
 const COMPACT_MIN_TAG_WIDTH = 140;
 const COMPACT_MAX_TAG_WIDTH = 196;
 const HERO_TAG_HEIGHT = 86;
 const HERO_REACTION_TAG_HEIGHT = 112;
+const MOBILE_HERO_TAG_HEIGHT = 78;
+const MOBILE_HERO_REACTION_TAG_HEIGHT = 104;
 const COMPACT_TAG_HEIGHT = 66;
 const COMPACT_REACTION_TAG_HEIGHT = 90;
 const COMPACT_SOCIAL_TAG_HEIGHT = 110;
 const HERO_TAG_GAP = 34;
 const HERO_REACTION_TAG_GAP = 38;
+const MOBILE_HERO_TAG_GAP = 26;
+const MOBILE_HERO_REACTION_TAG_GAP = 32;
+const HERO_DATE_MARKER_TAG_GAP = 46;
+const MOBILE_HERO_DATE_MARKER_TAG_GAP = 44;
 const COMPACT_TAG_GAP = 20;
 const COMPACT_REACTION_TAG_GAP = 23;
 const COMPACT_SOCIAL_TAG_GAP = 26;
 const HERO_HORIZONTAL_GAP = 34;
+const MOBILE_HERO_HORIZONTAL_GAP = 24;
 const COMPACT_HORIZONTAL_GAP = 22;
 
 function clamp(value: number, min: number, max: number) {
@@ -63,18 +74,35 @@ function normalizeTimestampMs(value: unknown) {
 export function estimateSongTimelineTagWidth(
   item: SongActivityItem,
   compact = false,
+  mobileHeroMode = false,
   reactionMode = false,
 ) {
-  const minWidth = compact ? COMPACT_MIN_TAG_WIDTH : HERO_MIN_TAG_WIDTH;
-  const maxWidth = compact ? COMPACT_MAX_TAG_WIDTH : HERO_MAX_TAG_WIDTH;
+  const minWidth = compact
+    ? COMPACT_MIN_TAG_WIDTH
+    : mobileHeroMode
+      ? MOBILE_HERO_MIN_TAG_WIDTH
+      : HERO_MIN_TAG_WIDTH;
+  const maxWidth = compact
+    ? COMPACT_MAX_TAG_WIDTH
+    : mobileHeroMode
+      ? MOBILE_HERO_MAX_TAG_WIDTH
+      : HERO_MAX_TAG_WIDTH;
   const titleWeight = Math.min(item.title.trim().length, 30);
   const metadataWeight = Math.min(
     `${item.artist} ${item.uploadedBy.displayName}`.trim().length,
     34,
   );
   const estimatedWidth =
-    minWidth + Math.max(titleWeight, metadataWeight * 0.82) * (compact ? 2.45 : 2.85);
-  const reactionFloor = reactionMode ? (compact ? 148 : 176) : minWidth;
+    minWidth +
+    Math.max(titleWeight, metadataWeight * 0.82) *
+      (compact ? 2.45 : mobileHeroMode ? 2.35 : 2.85);
+  const reactionFloor = reactionMode
+    ? compact
+      ? 148
+      : mobileHeroMode
+        ? 156
+        : 176
+    : minWidth;
 
   return clamp(Math.max(estimatedWidth, reactionFloor), minWidth, maxWidth);
 }
@@ -82,13 +110,19 @@ export function estimateSongTimelineTagWidth(
 export function buildSongFrequencyTimelineWidth(
   items: SongActivityItem[],
   compact = false,
+  mobileHeroMode = false,
   reactionMode = false,
 ) {
-  const horizontalGap = compact ? COMPACT_HORIZONTAL_GAP : HERO_HORIZONTAL_GAP;
-  const leftRightPadding = compact ? 88 : 112;
-  const minimumWidth = compact ? 620 : 860;
+  const horizontalGap = compact
+    ? COMPACT_HORIZONTAL_GAP
+    : mobileHeroMode
+      ? MOBILE_HERO_HORIZONTAL_GAP
+      : HERO_HORIZONTAL_GAP;
+  const leftRightPadding = compact ? 88 : mobileHeroMode ? 92 : 112;
+  const minimumWidth = compact ? 620 : mobileHeroMode ? 720 : 860;
   const totalTagWidth = items.reduce(
-    (sum, item) => sum + estimateSongTimelineTagWidth(item, compact, reactionMode),
+    (sum, item) =>
+      sum + estimateSongTimelineTagWidth(item, compact, mobileHeroMode, reactionMode),
     0,
   );
   const totalGapWidth = Math.max(0, items.length - 1) * horizontalGap;
@@ -98,7 +132,9 @@ export function buildSongFrequencyTimelineWidth(
 
 export function buildSongFrequencyTimelineLayout({
   compact = false,
+  dateMarkerMode = false,
   items,
+  mobileHeroMode = false,
   reactionMode = false,
   socialDetailMode = false,
   waveConfig,
@@ -112,21 +148,41 @@ export function buildSongFrequencyTimelineLayout({
       : reactionMode
         ? COMPACT_REACTION_TAG_HEIGHT
         : COMPACT_TAG_HEIGHT
+    : mobileHeroMode
+      ? reactionMode
+        ? MOBILE_HERO_REACTION_TAG_HEIGHT
+        : MOBILE_HERO_TAG_HEIGHT
     : reactionMode
       ? HERO_REACTION_TAG_HEIGHT
       : HERO_TAG_HEIGHT;
-  const tagGap = compact
-    ? socialDetailMode
+  let tagGap = HERO_TAG_GAP;
+
+  if (compact) {
+    tagGap = socialDetailMode
       ? COMPACT_SOCIAL_TAG_GAP
       : reactionMode
         ? COMPACT_REACTION_TAG_GAP
-        : COMPACT_TAG_GAP
-    : reactionMode
-      ? HERO_REACTION_TAG_GAP
-      : HERO_TAG_GAP;
-  const horizontalGap = compact ? COMPACT_HORIZONTAL_GAP : HERO_HORIZONTAL_GAP;
+        : COMPACT_TAG_GAP;
+  } else if (mobileHeroMode) {
+    tagGap = dateMarkerMode
+      ? MOBILE_HERO_DATE_MARKER_TAG_GAP
+      : reactionMode
+        ? MOBILE_HERO_REACTION_TAG_GAP
+        : MOBILE_HERO_TAG_GAP;
+  } else {
+    tagGap = dateMarkerMode
+      ? HERO_DATE_MARKER_TAG_GAP
+      : reactionMode
+        ? HERO_REACTION_TAG_GAP
+        : HERO_TAG_GAP;
+  }
+  const horizontalGap = compact
+    ? COMPACT_HORIZONTAL_GAP
+    : mobileHeroMode
+      ? MOBILE_HERO_HORIZONTAL_GAP
+      : HERO_HORIZONTAL_GAP;
   const tagWidths = orderedItems.map((item) =>
-    estimateSongTimelineTagWidth(item, compact, reactionMode),
+    estimateSongTimelineTagWidth(item, compact, mobileHeroMode, reactionMode),
   );
   const totalContentSpan = tagWidths.reduce((sum, width) => sum + width, 0) +
     Math.max(0, orderedItems.length - 1) * horizontalGap;
@@ -147,7 +203,9 @@ export function buildSongFrequencyTimelineLayout({
   let naturalCursor = 0;
 
   return orderedItems.map((item, index) => {
-    const tagWidth = tagWidths[index] ?? estimateSongTimelineTagWidth(item, compact, reactionMode);
+    const tagWidth =
+      tagWidths[index] ??
+      estimateSongTimelineTagWidth(item, compact, mobileHeroMode, reactionMode);
     const naturalCenter = naturalCursor + tagWidth / 2;
     const normalizedCenter =
       orderedItems.length === 1 || naturalCenterSpan <= 1

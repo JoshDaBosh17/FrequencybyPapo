@@ -1,9 +1,12 @@
 import type {
   FrequencyRoom,
+  PersonalSongItem,
   RoomShareItem,
   RoomShareReactions,
   UserProfile,
 } from "@/lib/types";
+import { buildDirectPlatformLinks, detectMusicLinkPlatform } from "@/lib/frequency/music-link";
+import { getRoomShareDisplayText } from "@/lib/frequency/room-share";
 
 export type SongActivityItem = {
   id: string;
@@ -15,10 +18,13 @@ export type SongActivityItem = {
   comment: string | null;
   primaryGenre: string | null;
   links: RoomShareItem["links"];
+  artworkUrl: string | null;
   sourcePlatform: RoomShareItem["sourcePlatform"];
   createdAt: unknown;
   ageLabel: string;
+  addedDateLabel: string | null;
   contextLabel: string | null;
+  visualAccentKey: string;
   reactions: RoomShareReactions;
   uploadedBy: {
     uid: string;
@@ -86,12 +92,31 @@ function formatRelativeAge(value: unknown) {
   }).format(new Date(timestampMs));
 }
 
+function formatAddedDate(value: unknown) {
+  const timestampMs = normalizeTimestampMs(value);
+
+  if (!timestampMs) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(timestampMs));
+}
+
 function normalizeText(value: string | null | undefined) {
   return value?.trim().replace(/\s+/g, " ") || null;
 }
 
 function hasPlayableLinks(item: RoomShareItem) {
-  return Boolean(item.links?.spotify || item.links?.appleMusic || item.links?.soundcloud);
+  return Boolean(
+    item.links?.spotify ||
+      item.links?.appleMusic ||
+      item.links?.soundcloud ||
+      detectMusicLinkPlatform(item.url),
+  );
 }
 
 function buildContextLabel(roomName: string | null, channel: string | null) {
@@ -108,6 +133,40 @@ function buildContextLabel(roomName: string | null, channel: string | null) {
   }
 
   return null;
+}
+
+function buildVisualAccentKey(params: {
+  artist: string;
+  roomName?: string | null;
+  title: string;
+  uploaderName: string;
+  primaryGenre?: string | null;
+}) {
+  const genre = normalizeText(params.primaryGenre);
+
+  if (genre) {
+    return genre;
+  }
+
+  const artist = normalizeText(params.artist);
+
+  if (artist) {
+    return `artist:${artist}`;
+  }
+
+  const roomName = normalizeText(params.roomName);
+
+  if (roomName) {
+    return `room:${roomName}`;
+  }
+
+  const title = normalizeText(params.title);
+
+  if (title) {
+    return `title:${title}`;
+  }
+
+  return `uploader:${normalizeText(params.uploaderName) ?? "frequency"}`;
 }
 
 export function buildSongActivityItems(params: {
@@ -131,8 +190,17 @@ export function buildSongActivityItems(params: {
   return params.items
     .filter((item) => !allowedUploaderIds || allowedUploaderIds.has(item.addedBy))
     .flatMap((item) => {
-      const title = normalizeText(item.resolvedTrack) ?? normalizeText(item.title);
-      const artist = normalizeText(item.resolvedArtist) ?? normalizeText(item.subtitle);
+      const display = getRoomShareDisplayText(item);
+      const title = normalizeText(item.resolvedTrack) ?? normalizeText(display.title);
+      const artist = normalizeText(item.resolvedArtist) ?? normalizeText(display.subtitle);
+      const directLinks = buildDirectPlatformLinks(item.url);
+      const links =
+        item.links?.spotify ||
+        item.links?.appleMusic ||
+        item.links?.soundcloud ||
+        item.links?.youtube
+          ? item.links
+          : directLinks;
 
       if (!title || !artist) {
         return [];
@@ -150,13 +218,15 @@ export function buildSongActivityItems(params: {
       return [
         {
           ageLabel: formatRelativeAge(item.createdAt),
+          addedDateLabel: formatAddedDate(item.createdAt),
           artist,
           channel: normalizeText(item.channel),
           comment: normalizeText(item.note),
           contextLabel: buildContextLabel(room?.name ?? null, normalizeText(item.channel)),
           createdAt: item.createdAt,
           id: item.id,
-          links: item.links ?? null,
+          links,
+          artworkUrl: normalizeText(item.artworkUrl) ?? null,
           primaryGenre: normalizeText(item.primaryGenre),
           rawItem: item,
           reactions: item.reactions ?? {},
@@ -164,6 +234,13 @@ export function buildSongActivityItems(params: {
           roomName: room?.name ?? null,
           sourcePlatform: item.sourcePlatform ?? null,
           title,
+          visualAccentKey: buildVisualAccentKey({
+            artist,
+            primaryGenre: item.primaryGenre,
+            roomName: room?.name ?? null,
+            title,
+            uploaderName: uploadedByName,
+          }),
           uploadedBy: {
             avatarUrl: normalizeText(uploaderProfile?.photoURL) ?? null,
             displayName: uploadedByName,
@@ -228,4 +305,88 @@ export function buildSongFrequencySummary(items: SongActivityItem[]) {
 
 export function filterPlayableSongActivityItems(items: SongActivityItem[]) {
   return items.filter((item) => hasPlayableLinks(item.rawItem));
+}
+
+export function buildPersonalSongActivityItems(params: {
+  items: PersonalSongItem[];
+  currentUserId?: string | null;
+  profile?: UserProfile | null;
+}) {
+  return params.items
+    .flatMap((item) => {
+      const display = getRoomShareDisplayText(item);
+      const title = normalizeText(item.resolvedTrack) ?? normalizeText(display.title);
+      const artist = normalizeText(item.resolvedArtist) ?? normalizeText(display.subtitle);
+      const directLinks = buildDirectPlatformLinks(item.url);
+      const links =
+        item.links?.spotify ||
+        item.links?.appleMusic ||
+        item.links?.soundcloud ||
+        item.links?.youtube
+          ? item.links
+          : directLinks;
+
+      if (!title || !artist) {
+        return [];
+      }
+
+      return [
+        {
+          ageLabel: formatRelativeAge(item.createdAt),
+          addedDateLabel: formatAddedDate(item.createdAt),
+          artist,
+          artworkUrl: normalizeText(item.artworkUrl) ?? null,
+          channel: null,
+          comment: normalizeText(item.note),
+          contextLabel: "Your collection",
+          createdAt: item.createdAt,
+          id: item.id,
+          links,
+          primaryGenre: normalizeText(item.primaryGenre),
+          rawItem: {
+            addedBy: params.currentUserId ?? params.profile?.uid ?? item.userId,
+            addedByName: params.profile?.displayName ?? "You",
+            artworkUrl: item.artworkUrl ?? null,
+            channel: "",
+            createdAt: item.createdAt,
+            enrichmentError: item.enrichmentError ?? null,
+            enrichmentSource: item.enrichmentSource ?? null,
+            enrichmentStatus: item.enrichmentStatus ?? "idle",
+            enrichedAt: item.enrichedAt ?? null,
+            id: item.id,
+            kind: item.kind,
+            links,
+            note: item.note ?? null,
+            primaryGenre: item.primaryGenre ?? null,
+            reactions: {},
+            resolvedArtist: item.resolvedArtist ?? null,
+            resolvedTrack: item.resolvedTrack ?? null,
+            roomId: "",
+            sourcePlatform: item.sourcePlatform ?? null,
+            subtitle: item.subtitle ?? null,
+            title: item.title,
+            url: item.url ?? null,
+          } satisfies RoomShareItem,
+          reactions: {},
+          roomId: "__personal__",
+          roomName: null,
+          sourcePlatform: item.sourcePlatform ?? null,
+          title,
+          visualAccentKey: buildVisualAccentKey({
+            artist,
+            primaryGenre: item.primaryGenre,
+            roomName: "Your collection",
+            title,
+            uploaderName: "You",
+          }),
+          uploadedBy: {
+            avatarUrl: normalizeText(params.profile?.photoURL) ?? null,
+            displayName: "You",
+            isCurrentUser: true,
+            uid: params.currentUserId ?? params.profile?.uid ?? item.userId,
+          },
+        } satisfies SongActivityItem,
+      ];
+    })
+    .sort((left, right) => normalizeTimestampMs(right.createdAt) - normalizeTimestampMs(left.createdAt));
 }

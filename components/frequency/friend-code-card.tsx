@@ -1,10 +1,9 @@
 "use client";
 
-import { Check, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
-
+import { buildAbsoluteInviteUrl, buildFriendInvitePath } from "@/lib/frequency/invite-links";
 import { getFriendCodeCopyValue } from "@/lib/frequency/friend-code";
 import { cn } from "@/lib/utils";
+import { InviteShareActions } from "./invite-share-actions";
 
 export function FriendCodeCard({
   friendCode,
@@ -17,34 +16,9 @@ export function FriendCodeCard({
   description: string;
   className?: string;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!copied) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setCopied(false);
-    }, 1800);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [copied]);
-
-  async function handleCopy() {
-    const copyValue = getFriendCodeCopyValue(friendCode);
-
-    if (!copyValue) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(copyValue);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
+  const formattedFriendCode = getFriendCodeCopyValue(friendCode) || null;
+  const invitePath = buildFriendInvitePath(formattedFriendCode);
+  const inviteLink = buildAbsoluteInviteUrl(invitePath);
 
   return (
     <div className={cn("space-y-3", className)}>
@@ -55,20 +29,13 @@ export function FriendCodeCard({
           </p>
           <p className="text-[14px] leading-6 text-[var(--text-soft)]">{description}</p>
         </div>
-        <div className="surface-inline-soft flex items-center justify-between gap-3 rounded-[18px] px-4 py-3">
-          <p className="min-w-0 truncate font-mono text-[15px] font-semibold tracking-[0.16em] text-[var(--text)]">
-            {friendCode ?? "Generating code"}
-          </p>
-          <button
-            className="button-secondary inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full px-3 text-xs font-medium disabled:opacity-60"
-            disabled={!friendCode}
-            onClick={() => void handleCopy()}
-            type="button"
-          >
-            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
+        <InviteShareActions
+          codeLabel={title}
+          codeValue={formattedFriendCode}
+          linkValue={inviteLink}
+          shareText="Add me on Frequency."
+          shareTitle="Frequency friend invite"
+        />
       </div>
     </div>
   );

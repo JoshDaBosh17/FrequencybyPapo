@@ -9,6 +9,7 @@ import {
 } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 
+import { IS_FREQUENCY_DEMO_MODE } from "@/lib/frequency/demo-mode";
 import type { UserProfile } from "@/lib/types";
 import { auth, ensureAuthPersistence, signInWithGoogle, signOutUser } from "@/lib/firebase/auth";
 import { ensureUserProfile, observeUserProfile } from "@/lib/firebase/firestore";
@@ -86,8 +87,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setUser(nextUser);
-      setLoading(true);
       setDataError(null);
+      setProfile(buildFallbackProfile(nextUser));
+      setLoading(!IS_FREQUENCY_DEMO_MODE);
 
       try {
         await ensureUserProfile(nextUser);

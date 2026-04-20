@@ -1,9 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Plus } from "lucide-react";
 
+import { useAuth } from "@/components/providers/auth-provider";
+import { deleteRoom, leaveRoom } from "@/lib/firebase/firestore";
+import { canLeaveRoom, canManageRoom } from "@/lib/frequency/room-roles";
 import type { FrequencyRoom } from "@/lib/types";
+import { DeleteRoomDialog } from "./delete-room-dialog";
+import { LeaveRoomDialog } from "./leave-room-dialog";
+import { RoomInviteDialog } from "./room-invite-dialog";
 import { RoomGridTile } from "./room-grid-tile";
 
 export function HomeRecentRooms({
@@ -13,52 +20,153 @@ export function HomeRecentRooms({
   onCreateRoom: () => void;
   rooms: FrequencyRoom[];
 }) {
+  const { profile, user } = useAuth();
   const recentRooms = rooms.slice(0, 3);
+  const [inviteRoom, setInviteRoom] = useState<FrequencyRoom | null>(null);
+  const [deleteTargetRoom, setDeleteTargetRoom] = useState<FrequencyRoom | null>(null);
+  const [leaveTargetRoom, setLeaveTargetRoom] = useState<FrequencyRoom | null>(null);
+  const [pendingDeleteRoomId, setPendingDeleteRoomId] = useState<string | null>(null);
+  const [pendingLeaveRoomId, setPendingLeaveRoomId] = useState<string | null>(null);
+  const currentUserId = user?.uid ?? profile?.uid ?? null;
+
+  async function handleConfirmLeaveRoom() {
+    if (!leaveTargetRoom) {
+      return;
+    }
+
+    if (!currentUserId) {
+      return;
+    }
+
+    setPendingLeaveRoomId(leaveTargetRoom.id);
+
+    try {
+      await leaveRoom({
+        roomId: leaveTargetRoom.id,
+        uid: currentUserId,
+      });
+      setLeaveTargetRoom(null);
+    } catch (error) {
+      console.error("[frequency][room-tile]", {
+        event: "leave_room_failed_from_home_recent_rooms",
+        roomId: leaveTargetRoom.id,
+        error: error instanceof Error ? error.message : "Leave room failed.",
+      });
+    } finally {
+      setPendingLeaveRoomId((current) =>
+        current === leaveTargetRoom.id ? null : current,
+      );
+    }
+  }
+
+  async function handleConfirmDeleteRoom() {
+    if (!deleteTargetRoom || !currentUserId) {
+      return;
+    }
+
+    setPendingDeleteRoomId(deleteTargetRoom.id);
+
+    try {
+      await deleteRoom({
+        roomId: deleteTargetRoom.id,
+        uid: currentUserId,
+      });
+      setDeleteTargetRoom(null);
+    } catch (error) {
+      console.error("[frequency][room-tile]", {
+        event: "delete_room_failed_from_home_recent_rooms",
+        roomId: deleteTargetRoom.id,
+        error: error instanceof Error ? error.message : "Delete room failed.",
+      });
+    } finally {
+      setPendingDeleteRoomId((current) =>
+        current === deleteTargetRoom.id ? null : current,
+      );
+    }
+  }
 
   return (
-    <section className="section-haze rounded-[30px] border border-[rgba(255,255,255,0.06)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_14px_34px_rgba(0,0,0,0.12)] sm:p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1.5">
-          <h2 className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
-            Recent Rooms
-          </h2>
-          <p className="max-w-[26rem] text-[13px] leading-5 text-[var(--text-soft)]">
-            Quick access to the spaces where songs are landing right now.
-          </p>
-        </div>
-
-        <Link
-          className="button-secondary inline-flex min-h-10 shrink-0 items-center gap-2 self-start rounded-full px-3.5 text-xs font-medium"
-          href="/rooms"
-        >
-          Open rooms
-          <ArrowUpRight className="size-3.5" />
-        </Link>
-      </div>
-
-      {recentRooms.length ? (
-        <div className="mt-5 grid grid-cols-3 gap-3">
-          {recentRooms.map((room) => (
-            <RoomGridTile key={room.id} room={room} />
-          ))}
-        </div>
-      ) : (
-        <div className="mt-5 rounded-[24px] border border-[var(--line)] bg-[rgba(13,16,24,0.6)] px-4 py-[18px]">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[14px] leading-6 text-[var(--text-soft)]">
-              No rooms yet. Start one and give your next songs a place to live.
+    <>
+      <section className="space-y-5 px-1">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1.5">
+            <h2 className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
+              Recent Rooms
+            </h2>
+            <p className="max-w-[26rem] text-[13px] leading-5 text-[var(--text-soft)]">
+              Quick access to the spaces where songs are landing right now.
             </p>
-            <button
-              className="button-secondary inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full px-3.5 text-xs font-medium"
-              onClick={onCreateRoom}
-              type="button"
-            >
-              <Plus className="size-3.5" />
-              Create
-            </button>
           </div>
+
+          <Link
+            className="button-secondary inline-flex min-h-10 shrink-0 items-center gap-2 self-start rounded-full px-3.5 text-xs font-medium"
+            href="/rooms"
+          >
+            Open rooms
+            <ArrowUpRight className="size-3.5" />
+          </Link>
         </div>
-      )}
-    </section>
+
+        {recentRooms.length ? (
+          <div className="grid grid-cols-3 gap-3">
+            {recentRooms.map((room) => (
+              <RoomGridTile
+                key={room.id}
+                onDelete={
+                  currentUserId && canManageRoom(room, currentUserId)
+                    ? setDeleteTargetRoom
+                    : undefined
+                }
+                onInvite={setInviteRoom}
+                onLeave={
+                  currentUserId && canLeaveRoom(room, currentUserId)
+                    ? setLeaveTargetRoom
+                    : undefined
+                }
+                room={room}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="surface-inline-soft rounded-[24px] px-4 py-[18px]">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[14px] leading-6 text-[var(--text-soft)]">
+                No rooms yet. Start one and give your next songs a place to live.
+              </p>
+              <button
+                className="button-secondary inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full px-3.5 text-xs font-medium"
+                onClick={onCreateRoom}
+                type="button"
+              >
+                <Plus className="size-3.5" />
+                Create
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <RoomInviteDialog onClose={() => setInviteRoom(null)} open={Boolean(inviteRoom)} room={inviteRoom} />
+      <DeleteRoomDialog
+        onClose={() => {
+          if (!pendingDeleteRoomId) {
+            setDeleteTargetRoom(null);
+          }
+        }}
+        onConfirm={() => void handleConfirmDeleteRoom()}
+        pending={Boolean(deleteTargetRoom && pendingDeleteRoomId === deleteTargetRoom.id)}
+        room={deleteTargetRoom}
+      />
+      <LeaveRoomDialog
+        onClose={() => {
+          if (!pendingLeaveRoomId) {
+            setLeaveTargetRoom(null);
+          }
+        }}
+        onConfirm={() => void handleConfirmLeaveRoom()}
+        pending={Boolean(leaveTargetRoom && pendingLeaveRoomId === leaveTargetRoom.id)}
+        room={leaveTargetRoom}
+      />
+    </>
   );
 }

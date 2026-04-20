@@ -19,6 +19,7 @@ export function useInitialHorizontalEdgeScroll({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const settleFrameRef = useRef<number | null>(null);
+  const fallbackTimeoutRef = useRef<number | null>(null);
   const isProgrammaticScrollRef = useRef(false);
   const hasEverAlignedRef = useRef(!enabled);
   const hasUserScrolledRef = useRef(false);
@@ -33,6 +34,11 @@ export function useInitialHorizontalEdgeScroll({
     if (settleFrameRef.current !== null) {
       window.cancelAnimationFrame(settleFrameRef.current);
       settleFrameRef.current = null;
+    }
+
+    if (fallbackTimeoutRef.current !== null) {
+      window.clearTimeout(fallbackTimeoutRef.current);
+      fallbackTimeoutRef.current = null;
     }
   }, []);
 
@@ -79,6 +85,10 @@ export function useInitialHorizontalEdgeScroll({
 
         isProgrammaticScrollRef.current = false;
         hasEverAlignedRef.current = true;
+        if (fallbackTimeoutRef.current !== null) {
+          window.clearTimeout(fallbackTimeoutRef.current);
+          fallbackTimeoutRef.current = null;
+        }
         setIsInitialPositioned(true);
       });
     },
@@ -93,13 +103,21 @@ export function useInitialHorizontalEdgeScroll({
 
       cancelScheduledFrames();
 
+      fallbackTimeoutRef.current = window.setTimeout(() => {
+        console.log("[frequency][timeline-scroll]", {
+          debugLabel,
+          event: "apply_initial_scroll_fallback_visible",
+        });
+        setIsInitialPositioned(true);
+      }, 220);
+
       animationFrameRef.current = window.requestAnimationFrame(() => {
         animationFrameRef.current = window.requestAnimationFrame(() => {
           alignToEnd(reason);
         });
       });
     },
-    [alignToEnd, cancelScheduledFrames, enabled],
+    [alignToEnd, cancelScheduledFrames, debugLabel, enabled],
   );
 
   useLayoutEffect(() => {

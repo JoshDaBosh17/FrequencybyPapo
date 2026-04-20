@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 
 import { getGenreColor, withAlpha } from "@/lib/frequency/genre-colors";
 import type { SongActivityItem } from "@/lib/frequency/song-activity";
@@ -13,6 +13,8 @@ type SongActivityFeedProps = {
   onSelectItem?: (item: SongActivityItem) => void;
   showContext?: boolean;
   maxVisibleItems?: number;
+  onEditItem?: (item: SongActivityItem) => void;
+  canEditItem?: (item: SongActivityItem) => boolean;
   onRemoveItem?: (item: SongActivityItem) => void;
   canRemoveItem?: (item: SongActivityItem) => boolean;
   removingItemId?: string | null;
@@ -50,6 +52,8 @@ export function SongActivityFeed({
   onSelectItem,
   showContext = false,
   maxVisibleItems,
+  onEditItem,
+  canEditItem,
   onRemoveItem,
   canRemoveItem,
   removingItemId,
@@ -75,16 +79,18 @@ export function SongActivityFeed({
   return (
     <div className="divide-y divide-[rgba(255,255,255,0.08)] border-y border-[rgba(255,255,255,0.08)]">
       {visibleItems.map((item) => {
-        const accentColor = getGenreColor(item.primaryGenre ?? "frequency");
+        const accentColor = getGenreColor(item.visualAccentKey);
         const hasListeningLinks = Boolean(
-          item.links?.spotify || item.links?.appleMusic || item.links?.soundcloud,
+          item.links?.spotify || item.links?.appleMusic || item.links?.soundcloud || item.links?.youtube,
         );
         const clickable = Boolean(onSelectItem && hasListeningLinks);
+        const editable = canEditItem ? canEditItem(item) : Boolean(onEditItem);
         const removable = canRemoveItem ? canRemoveItem(item) : Boolean(onRemoveItem);
         const removePending = removingItemId === item.id;
         const metadata = [
           `Uploaded by ${item.uploadedBy.displayName}`,
           showContext ? item.contextLabel : null,
+          item.addedDateLabel ? `Added ${item.addedDateLabel}` : null,
           item.ageLabel,
         ].filter((value): value is string => Boolean(value));
 
@@ -134,16 +140,30 @@ export function SongActivityFeed({
               rowContent
             )}
 
-            {removable ? (
-              <button
-                aria-label={`Remove ${item.title}`}
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--text-faint)] transition hover:bg-white/[0.06] hover:text-[var(--text)] disabled:cursor-wait disabled:opacity-45"
-                disabled={removePending}
-                onClick={() => onRemoveItem?.(item)}
-                type="button"
-              >
-                <X className="size-4" />
-              </button>
+            {editable || removable ? (
+              <div className="flex shrink-0 items-center gap-1">
+                {editable ? (
+                  <button
+                    aria-label={`Edit ${item.title}`}
+                    className="inline-flex size-9 items-center justify-center rounded-full text-[var(--text-faint)] transition hover:bg-white/[0.06] hover:text-[var(--text)]"
+                    onClick={() => onEditItem?.(item)}
+                    type="button"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
+                ) : null}
+                {removable ? (
+                  <button
+                    aria-label={`Remove ${item.title}`}
+                    className="inline-flex size-9 items-center justify-center rounded-full text-[var(--text-faint)] transition hover:bg-white/[0.06] hover:text-[var(--text)] disabled:cursor-wait disabled:opacity-45"
+                    disabled={removePending}
+                    onClick={() => onRemoveItem?.(item)}
+                    type="button"
+                  >
+                    <X className="size-4" />
+                  </button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         );

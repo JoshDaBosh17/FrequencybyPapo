@@ -38,10 +38,10 @@ export function TimelineAddMusicButton({
       style={{
         background: `linear-gradient(180deg, ${withAlpha(
           accentColor,
-          0.18,
+          0.14,
         )}, rgba(10,12,18,0.92) 78%)`,
-        borderColor: withAlpha(accentColor, 0.34),
-        boxShadow: `0 18px 36px ${withAlpha(accentColor, 0.18)}`,
+        borderColor: withAlpha(accentColor, 0.28),
+        boxShadow: `0 12px 24px ${withAlpha(accentColor, 0.12)}`,
       }}
     >
       <AddMusicHeroIcon accentColor={accentColor} />

@@ -177,7 +177,7 @@ export function HomeYouMightLike({
   }, [cacheKey, canRecommend, loadRecommendations]);
 
   return (
-    <section className="section-haze rounded-[30px] border border-[rgba(255,255,255,0.06)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_14px_34px_rgba(0,0,0,0.12)] sm:p-6">
+    <section className="space-y-5 px-1">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1.5">
           <h2 className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
@@ -200,7 +200,7 @@ export function HomeYouMightLike({
       </div>
 
       {!canRecommend ? (
-        <div className="mt-5 rounded-[24px] border border-[var(--line)] bg-[rgba(13,16,24,0.6)] px-4 py-[18px]">
+        <div className="surface-inline-soft rounded-[24px] px-4 py-[18px]">
           <p className="text-[14px] leading-6 text-[var(--text-soft)]">
             {emptyMessage}
           </p>
@@ -215,11 +215,11 @@ export function HomeYouMightLike({
           ) : null}
         </div>
       ) : items.length ? (
-        <div className="-mx-1 mt-5 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="-mx-1 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex min-w-full gap-3 px-1">
             {items.map((item) => {
-              const accent = getGenreColor(item.primaryGenre ?? "frequency");
               const artist = normalizeText(item.artist) ?? "Unknown artist";
+              const accent = getGenreColor(item.primaryGenre ?? artist);
 
               return (
                 <button

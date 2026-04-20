@@ -1,29 +1,24 @@
 "use client";
 
-import { ArrowUpRight, Globe2, Lock, Music4, PlusCircle } from "lucide-react";
-import { useState } from "react";
+import { ArrowUpRight, CheckCircle2, Globe2, Lock, Music4, PlusCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { resolveArtistName } from "@/lib/client/artists";
+import { resolveMusicLink } from "@/lib/client/music-links";
 import { resolveSongName } from "@/lib/client/songs";
 import {
   buildArtistRoomShareDraft,
   buildLinkRoomShareDraft,
+  buildResolvedLinkRoomShareDraft,
   buildSongRoomShareDraft,
   getRoomShareKindLabel,
   ROOM_SHARE_KIND_OPTIONS,
+  type RoomShareSubmitDraft,
 } from "@/lib/frequency/room-share";
 import type { RoomShareKind } from "@/lib/types";
 import { ArtistCorrectionModal } from "./artist-correction-modal";
 import { SegmentedControl } from "./segmented-control";
 import { SongCorrectionModal } from "./song-correction-modal";
-
-type RoomShareSubmitDraft = {
-  kind: RoomShareKind;
-  title: string;
-  subtitle?: string | null;
-  url?: string | null;
-  note?: string | null;
-};
 
 type ArtistCorrectionState = {
   open: boolean;
@@ -48,32 +43,84 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function buildComposerStateFromDraft(initialDraft?: RoomShareSubmitDraft | null) {
+  const kind = initialDraft?.kind ?? "song";
+  const songTitle =
+    kind === "song" ? initialDraft?.resolvedTrack ?? initialDraft?.title ?? "" : "";
+  const songArtist =
+    kind === "song" ? initialDraft?.resolvedArtist ?? initialDraft?.subtitle ?? "" : "";
+  const songComment = kind === "song" ? initialDraft?.note ?? "" : "";
+  const artist = kind === "artist" ? initialDraft?.title ?? "" : "";
+  const link = kind === "link" ? initialDraft?.url ?? "" : "";
+  const linkComment = kind === "link" ? initialDraft?.note ?? "" : "";
+
+  return {
+    artist,
+    kind,
+    link,
+    linkComment,
+    songArtist,
+    songComment,
+    songTitle,
+  };
+}
+
 export function RoomShareComposer({
   channel,
   channelVibe,
   visibility,
   onSubmit,
   compact = false,
+  initialDraft,
+  mode = "add",
+  pendingLabel,
   showHeader = true,
+  submitLabel,
 }: {
   channel: string;
   channelVibe?: string | null;
   visibility: "personal" | "public";
   onSubmit: (draft: RoomShareSubmitDraft) => Promise<void>;
   compact?: boolean;
+  initialDraft?: RoomShareSubmitDraft | null;
+  mode?: "add" | "edit";
+  pendingLabel?: string;
   showHeader?: boolean;
+  submitLabel?: string;
 }) {
-  const [kind, setKind] = useState<RoomShareKind>("song");
-  const [songTitleInput, setSongTitleInput] = useState("");
-  const [songArtistInput, setSongArtistInput] = useState("");
-  const [songCommentInput, setSongCommentInput] = useState("");
-  const [artistInput, setArtistInput] = useState("");
-  const [linkInput, setLinkInput] = useState("");
-  const [linkCommentInput, setLinkCommentInput] = useState("");
+  const initialState = buildComposerStateFromDraft(initialDraft);
+  const [kind, setKind] = useState<RoomShareKind>(initialState.kind);
+  const [songTitleInput, setSongTitleInput] = useState(initialState.songTitle);
+  const [songArtistInput, setSongArtistInput] = useState(initialState.songArtist);
+  const [songCommentInput, setSongCommentInput] = useState(initialState.songComment);
+  const [artistInput, setArtistInput] = useState(initialState.artist);
+  const [linkInput, setLinkInput] = useState(initialState.link);
+  const [linkCommentInput, setLinkCommentInput] = useState(initialState.linkComment);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [artistCorrection, setArtistCorrection] = useState<ArtistCorrectionState | null>(null);
   const [songCorrection, setSongCorrection] = useState<SongCorrectionState | null>(null);
+  const isEditMode = mode === "edit";
+  const SubmitIcon = isEditMode ? CheckCircle2 : PlusCircle;
+  const submitCopy =
+    submitLabel ?? (isEditMode ? "Save changes" : `Add ${getRoomShareKindLabel(kind)}`);
+  const pendingCopy =
+    pendingLabel ?? (isEditMode ? "Saving" : "Adding");
+
+  useEffect(() => {
+    const nextState = buildComposerStateFromDraft(initialDraft);
+
+    setKind(nextState.kind);
+    setSongTitleInput(nextState.songTitle);
+    setSongArtistInput(nextState.songArtist);
+    setSongCommentInput(nextState.songComment);
+    setArtistInput(nextState.artist);
+    setLinkInput(nextState.link);
+    setLinkCommentInput(nextState.linkComment);
+    setError(null);
+    setArtistCorrection(null);
+    setSongCorrection(null);
+  }, [initialDraft]);
 
   function resetComposerForKind(submittedKind: RoomShareKind) {
     if (submittedKind === "song") {
@@ -94,8 +141,26 @@ export function RoomShareComposer({
 
   async function submitDraft(draft: RoomShareSubmitDraft) {
     await onSubmit(draft);
-    resetComposerForKind(draft.kind);
+    if (!isEditMode) {
+      resetComposerForKind(draft.kind);
+    }
     setError(null);
+  }
+
+  function preserveInitialSongLink(draft: RoomShareSubmitDraft): RoomShareSubmitDraft {
+    if (!isEditMode || initialDraft?.kind !== "song" || !initialDraft.url) {
+      return draft;
+    }
+
+    return {
+      ...draft,
+      artworkUrl: initialDraft.artworkUrl ?? draft.artworkUrl ?? null,
+      links: initialDraft.links ?? draft.links ?? null,
+      resolvedArtist: draft.subtitle ?? initialDraft.resolvedArtist ?? null,
+      resolvedTrack: draft.title,
+      sourcePlatform: initialDraft.sourcePlatform ?? draft.sourcePlatform ?? null,
+      url: initialDraft.url,
+    };
   }
 
   async function validateAndBuildDraft() {
@@ -129,11 +194,13 @@ export function RoomShareComposer({
         throw new Error("We couldn't verify that song. Check the title and artist.");
       }
 
-      return buildSongRoomShareDraft({
-        artist: resolution.canonicalArtist,
-        note: songCommentInput,
-        title: resolution.canonicalTitle,
-      });
+      return preserveInitialSongLink(
+        buildSongRoomShareDraft({
+          artist: resolution.canonicalArtist,
+          note: songCommentInput,
+          title: resolution.canonicalTitle,
+        }),
+      );
     }
 
     if (kind === "artist") {
@@ -163,10 +230,40 @@ export function RoomShareComposer({
       });
     }
 
-    return buildLinkRoomShareDraft({
+    const draft = buildLinkRoomShareDraft({
       note: linkCommentInput,
       url: linkInput,
     });
+
+    if (!draft.url || !draft.sourcePlatform) {
+      return draft;
+    }
+
+    try {
+      const resolution = await resolveMusicLink(draft.url);
+
+      if (resolution.title && resolution.artist) {
+        return buildResolvedLinkRoomShareDraft({
+          artist: resolution.artist,
+          artworkUrl: resolution.artworkUrl,
+          note: linkCommentInput,
+          sourcePlatform: resolution.platform,
+          title: resolution.title,
+          url: resolution.url,
+        });
+      }
+    } catch (resolutionError) {
+      console.warn("[frequency][music-link-resolution]", {
+        event: "composer_music_link_resolution_failed",
+        error:
+          resolutionError instanceof Error
+            ? resolutionError.message
+            : "Music link resolution failed.",
+        url: draft.url,
+      });
+    }
+
+    return draft;
   }
 
   async function handleSubmit(event?: React.FormEvent<HTMLFormElement>) {
@@ -229,11 +326,13 @@ export function RoomShareComposer({
 
     try {
       await submitDraft(
-        buildSongRoomShareDraft({
-          artist: songCorrection.canonicalArtist,
-          note: songCorrection.note,
-          title: songCorrection.canonicalTitle,
-        }),
+        preserveInitialSongLink(
+          buildSongRoomShareDraft({
+            artist: songCorrection.canonicalArtist,
+            note: songCorrection.note,
+            title: songCorrection.canonicalTitle,
+          }),
+        ),
       );
       setSongCorrection(null);
     } catch (submitError) {
@@ -372,8 +471,8 @@ export function RoomShareComposer({
                 type="submit"
               >
                 <span className="inline-flex items-center gap-2">
-                  <PlusCircle className="size-4" />
-                  {pending ? "Adding" : `Add ${getRoomShareKindLabel(kind)}`}
+                  <SubmitIcon className="size-4" />
+                  {pending ? pendingCopy : submitCopy}
                 </span>
               </button>
             </div>
@@ -409,8 +508,8 @@ export function RoomShareComposer({
                 type="submit"
               >
                 <span className="inline-flex items-center gap-2">
-                  <PlusCircle className="size-4" />
-                  {pending ? "Adding" : `Add ${getRoomShareKindLabel(kind)}`}
+                  <SubmitIcon className="size-4" />
+                  {pending ? pendingCopy : submitCopy}
                 </span>
               </button>
             </div>
@@ -461,8 +560,8 @@ export function RoomShareComposer({
                 type="submit"
               >
                 <span className="inline-flex items-center gap-2">
-                  <PlusCircle className="size-4" />
-                  {pending ? "Adding" : `Add ${getRoomShareKindLabel(kind)}`}
+                  <SubmitIcon className="size-4" />
+                  {pending ? pendingCopy : submitCopy}
                 </span>
               </button>
             </div>

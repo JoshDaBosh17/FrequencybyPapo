@@ -1809,4 +1809,4 @@ export async function resetArtistChannelCache(artistName: string) {
   const normalized = normalizeArtistName(artistName);
   await adminDb.collection("artistChannels").doc(normalized.normalizedKey).delete();
   return normalized.normalizedKey;
-}
+ }

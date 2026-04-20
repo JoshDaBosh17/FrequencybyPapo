@@ -1,13 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Music4, Sparkles, X } from "lucide-react";
 
 import { CONTINUE_LISTENING_PLAY_ICON_SRC } from "@/lib/frequency/button-icons";
 import type { GuidedRecommendationIntent } from "@/lib/types";
-import { GlassCard } from "./glass-card";
 import { GuidedSongControls } from "./guided-song-controls";
+import { ModalBody, ModalFrame } from "./modal-frame";
+import { useModalLock } from "./use-modal-lock";
 
 type CatchAVibePlayerProps = {
   artistOptions: string[];
@@ -49,72 +50,49 @@ function CatchAVibeModal({
   onIntentChange: (intent: GuidedRecommendationIntent) => void;
   pending: boolean;
 }) {
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
+  useModalLock({
+    onClose,
+    open: true,
+  });
 
   return (
-    <div
-      className="modal-scrim fixed inset-0 z-50 flex items-center justify-center px-4 py-6 backdrop-blur-md"
-      onClick={onClose}
-    >
-      <GlassCard
-        strong
-        className="w-full max-w-xl rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(11,13,20,0.98),rgba(6,8,13,0.98))] p-5 shadow-[0_36px_90px_rgba(0,0,0,0.48)] sm:p-6"
-      >
-        <div
-          className="space-y-5"
-          onClick={(event) => {
-            event.stopPropagation();
-          }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">
-                Catch a vibe
-              </p>
-              <h2 className="text-[24px] font-semibold tracking-[-0.05em] text-[var(--text)]">
-                Activate your player
-              </h2>
-            </div>
-
-            <button
-              aria-label="Close catch a vibe"
-              className="button-secondary inline-flex min-h-10 min-w-10 items-center justify-center rounded-full px-3"
-              onClick={onClose}
-              type="button"
-            >
-              <X className="size-4" />
-            </button>
+    <ModalFrame className="max-w-xl" closeOnBackdrop onClose={onClose}>
+      <div className="shrink-0 border-b border-white/8 px-5 py-5 sm:px-6 sm:py-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">
+              Catch a vibe
+            </p>
+            <h2 className="text-[24px] font-semibold tracking-[-0.05em] text-[var(--text)]">
+              Activate your player
+            </h2>
           </div>
 
-          <GuidedSongControls
-            artistOptions={artistOptions}
-            buttonLabel="Give me one"
-            correlatedGenreOptions={correlatedGenreOptions}
-            genreHelperCopy={genreHelperCopy}
-            genreOptions={genreOptions}
-            intent={intent}
-            onConfirm={onConfirm}
-            onIntentChange={onIntentChange}
-            pending={pending}
-          />
+          <button
+            aria-label="Close catch a vibe"
+            className="button-secondary inline-flex min-h-10 min-w-10 items-center justify-center rounded-full px-3"
+            onClick={onClose}
+            type="button"
+          >
+            <X className="size-4" />
+          </button>
         </div>
-      </GlassCard>
-    </div>
+      </div>
+
+      <ModalBody>
+        <GuidedSongControls
+          artistOptions={artistOptions}
+          buttonLabel="Give me one"
+          correlatedGenreOptions={correlatedGenreOptions}
+          genreHelperCopy={genreHelperCopy}
+          genreOptions={genreOptions}
+          intent={intent}
+          onConfirm={onConfirm}
+          onIntentChange={onIntentChange}
+          pending={pending}
+        />
+      </ModalBody>
+    </ModalFrame>
   );
 }
 
@@ -142,7 +120,7 @@ export function CatchAVibePlayer({
 
   return (
     <>
-      <section className="section-haze rounded-[30px] border border-[rgba(255,255,255,0.06)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_14px_34px_rgba(0,0,0,0.12)] sm:p-6">
+      <section className="space-y-5 px-1">
         <div className="space-y-1.5">
           <h2 className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
             Catch a vibe
@@ -153,7 +131,7 @@ export function CatchAVibePlayer({
         </div>
 
         {playback ? (
-          <div className="mt-5 rounded-[28px] border border-[var(--line)] bg-[linear-gradient(180deg,rgba(15,18,26,0.96),rgba(9,11,17,0.98))] p-4 shadow-[0_18px_44px_rgba(0,0,0,0.24)] sm:p-5">
+          <div className="rounded-[28px] border border-[var(--line)] bg-[linear-gradient(180deg,rgba(15,18,26,0.96),rgba(9,11,17,0.98))] p-4 shadow-[0_18px_44px_rgba(0,0,0,0.24)] sm:p-5">
             <div className="flex items-start gap-4">
               {playback.thumbnail ? (
                 <div className="overflow-hidden rounded-[20px] border border-[var(--line)]">
@@ -207,7 +185,7 @@ export function CatchAVibePlayer({
           </div>
         ) : (
           <button
-            className="mt-5 w-full rounded-[28px] border border-[var(--line)] bg-[linear-gradient(180deg,rgba(15,18,26,0.96),rgba(9,11,17,0.98))] p-4 text-left shadow-[0_18px_44px_rgba(0,0,0,0.24)] transition hover:border-[var(--line-strong)] hover:bg-[linear-gradient(180deg,rgba(18,22,30,0.98),rgba(11,13,20,0.98))] sm:p-5"
+            className="w-full rounded-[28px] border border-[var(--line)] bg-[linear-gradient(180deg,rgba(15,18,26,0.96),rgba(9,11,17,0.98))] p-4 text-left shadow-[0_18px_44px_rgba(0,0,0,0.24)] transition hover:border-[var(--line-strong)] hover:bg-[linear-gradient(180deg,rgba(18,22,30,0.98),rgba(11,13,20,0.98))] sm:p-5"
             disabled={pending}
             onClick={() => {
               if (hasLaneOptions) {

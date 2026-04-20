@@ -63,12 +63,17 @@ export function CompareScreen() {
       ) : (
         <div className="section-haze flex min-h-[240px] items-center justify-center rounded-[30px] p-6 text-center">
           <p className="text-[20px] font-semibold tracking-[-0.03em] text-[var(--text)]">
-            No friends added
+            You have no friends :(
           </p>
         </div>
       )}
 
-      <AddFriendDialog onClose={() => setAddFriendOpen(false)} open={addFriendOpen} />
+      <AddFriendDialog
+        displayName={profile?.displayName}
+        friendCode={profile?.friendCode}
+        onClose={() => setAddFriendOpen(false)}
+        open={addFriendOpen}
+      />
       <CompareHelixModal
         currentProfile={profile}
         friendProfile={selectedFriend}

@@ -234,6 +234,8 @@ export type RoomShareReactions = Partial<
   Record<RoomShareReactionKind, string[]>
 >;
 
+export type RoomMemberRole = "owner" | "co-owner" | "member";
+
 export type RoomShareItem = {
   id: string;
   roomId: string;
@@ -245,6 +247,7 @@ export type RoomShareItem = {
   note?: string | null;
   sourcePlatform?: RoomShareSourcePlatform | null;
   links?: RoomSharePlatformLinks | null;
+  artworkUrl?: string | null;
   addedBy: string;
   addedByName?: string | null;
   resolvedArtist?: string | null;
@@ -258,6 +261,27 @@ export type RoomShareItem = {
   createdAt: unknown;
 };
 
+export type PersonalSongItem = {
+  id: string;
+  userId: string;
+  kind: RoomShareKind;
+  title: string;
+  subtitle?: string | null;
+  url?: string | null;
+  note?: string | null;
+  sourcePlatform?: RoomShareSourcePlatform | null;
+  links?: RoomSharePlatformLinks | null;
+  artworkUrl?: string | null;
+  resolvedArtist?: string | null;
+  resolvedTrack?: string | null;
+  primaryGenre?: string | null;
+  enrichmentStatus?: "idle" | "loading" | "ready" | "error";
+  enrichmentError?: string | null;
+  enrichmentSource?: "lastfm_track" | "lastfm_artist" | null;
+  enrichedAt?: unknown;
+  createdAt: unknown;
+};
+
 export type FrequencyRoom = {
   id: string;
   name: string;
@@ -265,7 +289,10 @@ export type FrequencyRoom = {
   createdBy: string;
   createdAt: unknown;
   visibility: "personal" | "public";
+  roomCode?: string | null;
+  roomCodeNormalized?: string | null;
   memberIds: string[];
+  memberRoles?: Record<string, RoomMemberRole>;
   genreChannels: string[];
   channelVibes?: Record<string, string>;
   songCount: number;

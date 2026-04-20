@@ -2,12 +2,25 @@ import { cert, getApp, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
 function parsePrivateKey() {
-  const value = process.env.FIREBASE_PRIVATE_KEY;
+  const value = process.env.FIREBASE_PRIVATE_KEY?.trim();
   if (!value) {
     throw new Error("FIREBASE_PRIVATE_KEY is not set");
   }
 
-  return value.replace(/\\n/g, "\n");
+  const normalized = value
+    .replace(/^['"]+|['"]+$/g, "")
+    .replace(/\\r/g, "")
+    .replace(/\\n/g, "\n")
+    .trim();
+
+  if (
+    !normalized.includes("BEGIN PRIVATE KEY") ||
+    !normalized.includes("END PRIVATE KEY")
+  ) {
+    throw new Error("FIREBASE_PRIVATE_KEY is malformed");
+  }
+
+  return normalized;
 }
 
 const adminApp =

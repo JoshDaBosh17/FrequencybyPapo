@@ -5,8 +5,10 @@ import { ExternalLink, Link2, Mic2, Music4, X } from "lucide-react";
 
 import {
   buildRoomShareUrlLabel,
+  getRoomShareDisplayText,
   getRoomShareKindLabel,
 } from "@/lib/frequency/room-share";
+import { buildDirectPlatformLinks } from "@/lib/frequency/music-link";
 import type { RoomShareItem, RoomShareSourcePlatform } from "@/lib/types";
 
 function RoomShareIcon({ kind }: { kind: RoomShareItem["kind"] }) {
@@ -33,7 +35,15 @@ const ROOM_SHARE_PLATFORM_ORDER = [
 function getRoomSharePlatformEntries(
   links: RoomShareItem["links"],
   preferredPlatform?: RoomShareItem["sourcePlatform"],
+  sourceUrl?: string | null,
 ) {
+  const directLinks = buildDirectPlatformLinks(sourceUrl);
+  const normalizedLinks = {
+    appleMusic: links?.appleMusic ?? directLinks.appleMusic ?? null,
+    soundcloud: links?.soundcloud ?? directLinks.soundcloud ?? null,
+    spotify: links?.spotify ?? directLinks.spotify ?? null,
+    youtube: links?.youtube ?? directLinks.youtube ?? null,
+  };
   const orderedPlatforms = preferredPlatform
     ? [
         preferredPlatform,
@@ -44,7 +54,7 @@ function getRoomSharePlatformEntries(
   return orderedPlatforms
     .map((platform) => ({
       platform,
-      url: links?.[platform] ?? null,
+      url: normalizedLinks?.[platform] ?? null,
     }))
     .filter((entry): entry is { platform: RoomSharePlatform; url: string } => Boolean(entry.url));
 }
@@ -138,14 +148,16 @@ function RoomSharePlatformLinks({
   compact,
   links,
   preferredPlatform,
+  sourceUrl,
   title,
 }: {
   compact: boolean;
   links: RoomShareItem["links"];
   preferredPlatform?: RoomShareItem["sourcePlatform"];
+  sourceUrl?: string | null;
   title: string;
 }) {
-  const platformEntries = getRoomSharePlatformEntries(links, preferredPlatform);
+  const platformEntries = getRoomSharePlatformEntries(links, preferredPlatform, sourceUrl);
 
   if (!platformEntries.length) {
     return null;
@@ -248,9 +260,14 @@ export function RoomShareFeed({
     return (
       <div className="divide-y divide-[rgba(255,255,255,0.08)] border-y border-[rgba(255,255,255,0.08)]">
         {visibleItems.map((item) => {
-          const displayTitle = item.resolvedTrack?.trim() || item.title;
-          const displaySubtitle = item.resolvedArtist?.trim() || item.subtitle;
-          const hasPlatformLinks = getRoomSharePlatformEntries(item.links, item.sourcePlatform).length > 0;
+          const display = getRoomShareDisplayText(item);
+          const displayTitle = display.displayTitle;
+          const displaySubtitle = display.displaySubtitle;
+          const hasPlatformLinks = getRoomSharePlatformEntries(
+            item.links,
+            item.sourcePlatform,
+            item.url ?? null,
+          ).length > 0;
           const showSourceUrl = item.kind !== "song" && Boolean(item.url) && !hasPlatformLinks;
           const removable = canRemoveItem ? canRemoveItem(item) : Boolean(onRemoveItem);
           const removePending = removingItemId === item.id;
@@ -330,6 +347,7 @@ export function RoomShareFeed({
                     compact={compact}
                     links={item.links}
                     preferredPlatform={item.sourcePlatform}
+                    sourceUrl={item.url ?? null}
                     title={displayTitle}
                   />
                   {showSourceUrl ? (
@@ -376,9 +394,14 @@ export function RoomShareFeed({
   return (
     <div className="space-y-3">
       {visibleItems.map((item) => {
-        const displayTitle = item.resolvedTrack?.trim() || item.title;
-        const displaySubtitle = item.resolvedArtist?.trim() || item.subtitle;
-        const hasPlatformLinks = getRoomSharePlatformEntries(item.links, item.sourcePlatform).length > 0;
+        const display = getRoomShareDisplayText(item);
+        const displayTitle = display.displayTitle;
+        const displaySubtitle = display.displaySubtitle;
+        const hasPlatformLinks = getRoomSharePlatformEntries(
+          item.links,
+          item.sourcePlatform,
+          item.url ?? null,
+        ).length > 0;
         const showSourceUrl = item.kind !== "song" && Boolean(item.url) && !hasPlatformLinks;
         const removable = canRemoveItem ? canRemoveItem(item) : Boolean(onRemoveItem);
         const removePending = removingItemId === item.id;
@@ -416,6 +439,7 @@ export function RoomShareFeed({
                     compact={false}
                     links={item.links}
                     preferredPlatform={item.sourcePlatform}
+                    sourceUrl={item.url ?? null}
                     title={displayTitle}
                   />
                   {showSourceUrl ? (

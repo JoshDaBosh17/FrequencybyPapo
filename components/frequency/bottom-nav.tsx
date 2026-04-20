@@ -13,7 +13,7 @@ type BottomNavProps = {
 const tabs: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: "home", label: "Home", icon: <Home className="size-4.5" /> },
   { id: "rooms", label: "Rooms", icon: <Radio className="size-4.5" /> },
-  { id: "compare", label: "Compare", icon: <Dna className="size-4.5" /> },
+  { id: "compare", label: "Friends", icon: <Dna className="size-4.5" /> },
   { id: "profile", label: "Profile", icon: <UserRound className="size-4.5" /> },
 ];
 
